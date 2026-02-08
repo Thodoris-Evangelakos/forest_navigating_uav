@@ -30,7 +30,7 @@ Key parameters (all in ``params`` dict)
 Validation targets (logged, not enforced):
     Clark-Evans R   < 1
     g(r) > 1        at small r
-    L(r) − r > 0    at small / mid r
+    L(r) - r > 0    at small / mid r
 """
 
 import random

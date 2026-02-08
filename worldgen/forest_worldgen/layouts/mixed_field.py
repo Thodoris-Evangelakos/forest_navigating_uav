@@ -68,7 +68,7 @@ def _build_candidate_sampler(dist_type, params, K):
     if dist_type in ('csr', 'regular'):
         return lambda: _point_in_area(K)
 
-    if dist_type == 'clustered':
+    if dist_type in ('clustered', 'scale_dependent'):
         cluster_count = max(1, int(params.get('cluster_count', 5)))
         cluster_radius = float(params.get('cluster_radius', 3.0))
         scatter_shape = params.get('scatter_shape', 'gaussian')

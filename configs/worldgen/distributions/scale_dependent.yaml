@@ -1,0 +1,17 @@
+distribution:
+  type: "scale_dependent"
+  params:
+    # --- cluster phase (forwarded to sample_clustered) ---
+    cluster_count: 12              # C  – number of parent centres
+    cluster_radius: 3.0            # r_c – small-scale scatter radius
+    scatter_shape: "gaussian"      # 'gaussian' | 'uniform_disk'
+    mean_per_cluster: 10           # expected children per parent
+    min_parent_distance: 1.5       # spacing between parent centres
+    background_fraction: 0.05      # CSR background fill fraction
+
+    # --- thinning / inhibition phase ---
+    d_mid: 3.0                     # mid-range competition distance
+    thin_mode: "deterministic"     # 'deterministic' | 'probabilistic'
+    thin_probability: 0.8          # only used when thin_mode = probabilistic
+    oversample_factor: 2.0         # generate this × count before thinning
+    topup_attempts: 500            # max attempts per point during top-up
