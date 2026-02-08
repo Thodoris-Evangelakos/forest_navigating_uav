@@ -1,7 +1,11 @@
 distribution:
   type: "clustered"
   params:
-    cluster_count: 6
-    cluster_radius: 4.0
-    points_per_cluster_mean: 8
-    background_fraction: 0.15
+    cluster_count: 6              # C – number of cluster centres
+    cluster_radius: 4.0           # r_c – characteristic cluster size (metres)
+    mean_per_cluster: 10          # μ – mean children per parent
+    background_fraction: 0.15     # fraction of total placed as CSR noise
+    scatter: "gaussian"           # 'gaussian' (Thomas) | 'disk' (Matérn)
+    variable_counts: true         # true → k_i ~ Poisson(μ); false → even split
+    allow_overlap: false          # true → parents may be arbitrarily close
+    parent_separation_factor: 0.5 # fraction of r_c as min parent distance
