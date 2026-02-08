@@ -1,4 +1,5 @@
 distribution:
   type: "regular"
   params:
-    min_distance: 2.0     # can override world constraint, possibly in the future
+    min_distance: 3.0       # hard repulsion radius (d_min for Poisson-disc)
+    k_candidates: 30        # Bridson candidates per active point

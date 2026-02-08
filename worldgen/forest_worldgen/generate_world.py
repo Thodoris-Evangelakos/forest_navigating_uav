@@ -11,6 +11,7 @@ from datetime import datetime
 from .config import load_config, load_template, resolve_path
 from .layouts import LAYOUT_HANDLERS, generate_single_zone
 from .export import export_sdf, export_meta, generate_preview
+from .spatial_stats import compute_validation_stats
 
 
 def main():
@@ -77,6 +78,14 @@ def main():
             positions = generate_single_zone(None, world_config, project_root)
 
         print(f"total objects : {len(positions)}")
+
+        # --- Validation statistics (logged, not enforced) ---
+        area_size = world_config['generation']['area_size']
+        stats = compute_validation_stats(positions, area_size)
+        R = stats['clark_evans_R']
+        g_s = stats['g_small_r_mean']
+        L_s = stats['L_small_r_mean']
+        print(f"validation    : R={R}  g_small={g_s}  L_small={L_s}")
 
         # --- Prepare output directory ---
         output_dir = os.path.join(worldgen_root, 'outputs', 'latest')

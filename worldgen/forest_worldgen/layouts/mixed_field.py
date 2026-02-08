@@ -55,6 +55,15 @@ def _field_value(kind, x, y, K, cfg):
 
 
 def _build_candidate_sampler(dist_type, params, K):
+    """Build a candidate point sampler for mixture-field placement.
+
+    For ``regular`` we still return uniform candidates – the hard min-distance
+    constraint is already enforced by the outer placement loop in
+    ``generate_mixed_field``.  The spatial inhibition in the standalone
+    ``sample_regular`` (Bridson Poisson-disc) is used when the regular
+    pattern owns the whole zone / world; inside a mixture field the outer
+    rejection loop handles it.
+    """
     if dist_type in ('csr', 'regular'):
         return lambda: _point_in_area(K)
 
