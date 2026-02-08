@@ -178,7 +178,7 @@ def sample_regular(count, region, K, min_distance, existing_positions, params):
         Number of points to generate.
     region : dict or None
         Rectangular sub-region ``{x_min, x_max, y_min, y_max}`` or None
-        for the full K×K world.
+        for the full K*K world.
     K : float
         World side length (domain is [-K/2, K/2]^2).
     min_distance : float
@@ -187,8 +187,8 @@ def sample_regular(count, region, K, min_distance, existing_positions, params):
         Already-placed points.
     params : dict
         Distribution parameters.  Recognised keys:
-            ``min_distance``  – override d_min (default: world min_distance)
-            ``k_candidates``  – Bridson candidates per active point (default 30)
+            ``min_distance``  - override d_min (default: world min_distance)
+            ``k_candidates``  - Bridson candidates per active point (default 30)
 
     Returns
     -------

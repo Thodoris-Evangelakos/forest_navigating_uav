@@ -79,7 +79,7 @@ python3 -m worldgen.forest_worldgen.generate_world configs/worldgen/worldgen_run
 ### World Configuration (`world.default.yaml`)
 
 Defines physics, lighting, and basic generation parameters:
-- Area size (K×K meters)
+- Area size (K*K meters)
 - Object count
 - Min distance between objects
 - Tree height range

@@ -70,16 +70,11 @@ def _build_candidate_sampler(dist_type, params, K):
     if dist_type == 'clustered':
         cluster_count = max(1, int(params.get('cluster_count', 5)))
         cluster_radius = float(params.get('cluster_radius', 3.0))
-        scatter_name = str(params.get('scatter', 'gaussian'))
-        allow_overlap = bool(params.get('allow_overlap', False))
-        sep_factor = float(params.get('parent_separation_factor', 0.5))
-        min_parent_dist = 0.0 if allow_overlap else cluster_radius * sep_factor
-
         parents = []
         for _ in range(cluster_count):
             for _ in range(60):
                 cx, cy = _point_in_area(K)
-                if min_parent_dist <= 0 or _check_min_distance(cx, cy, parents, min_parent_dist):
+                if _check_min_distance(cx, cy, parents, cluster_radius * 0.5):
                     parents.append((cx, cy))
                     break
             else:
@@ -89,10 +84,7 @@ def _build_candidate_sampler(dist_type, params, K):
             if parents:
                 cx, cy = random.choice(parents)
                 angle = random.uniform(0, 2 * math.pi)
-                if scatter_name == 'disk':
-                    r = cluster_radius * math.sqrt(random.random())
-                else:  # gaussian (default)
-                    r = random.gauss(0, cluster_radius / 2)
+                r = random.gauss(0, cluster_radius / 2)
                 x = cx + r * math.cos(angle)
                 y = cy + r * math.sin(angle)
                 x = max(-K / 2, min(K / 2, x))

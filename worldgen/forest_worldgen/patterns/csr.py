@@ -9,9 +9,9 @@ Each point is sampled i.i.d. uniformly over the domain.  There is
 resulting pattern remains a valid CSR null model.
 
 Validation targets (logged, not enforced):
-    Clark–Evans  R  ≈ 1
+    Clark-Evans  R  ≈ 1
     g(r)             ≈ 1  across tested r
-    L(r) − r         ≈ 0
+    L(r) - r         ≈ 0
 """
 
 import random
@@ -30,7 +30,7 @@ def _point_in_rect(region):
 
 
 def _point_in_area(K):
-    """Sample a uniform random point inside a K×K area centred at origin."""
+    """Sample a uniform random point inside a K*K area centred at origin."""
     return random.uniform(-K / 2, K / 2), random.uniform(-K / 2, K / 2)
 
 
@@ -56,7 +56,7 @@ def sample_csr(count, region, K, min_distance, existing_positions, params):
         Number of points to generate.
     region : dict | None
         Rectangular sub-region ``{x_min, x_max, y_min, y_max}`` or *None*
-        for the full K×K world.
+        for the full K*K world.
     K : float
         World side length (domain is ``[-K/2, K/2]²``).
     min_distance : float
@@ -68,10 +68,10 @@ def sample_csr(count, region, K, min_distance, existing_positions, params):
     params : dict
         Recognised keys:
 
-        ``overlap_guard`` – small distance to prevent exact overlaps
+        ``overlap_guard`` - small distance to prevent exact overlaps
             (default **0.0**, i.e. pure CSR).
 
-        ``use_world_min_distance`` – if *True*, fall back to the
+        ``use_world_min_distance`` - if *True*, fall back to the
             world-level *min_distance* instead of the overlap guard
             (default *False*).  Useful when CSR is used as a sub-sampler
             inside another pattern (e.g. background fill in clustered).
