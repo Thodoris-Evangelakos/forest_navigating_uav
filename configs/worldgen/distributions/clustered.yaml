@@ -1,0 +1,7 @@
+distribution:
+  type: "clustered"
+  params:
+    cluster_count: 6
+    cluster_radius: 4.0
+    points_per_cluster_mean: 8
+    background_fraction: 0.15

@@ -1,0 +1,27 @@
+# we define fields, hard transitioning between them
+layout:
+  type: "zones"
+
+  zones:
+    - name: "west_clustered"
+      region:
+        shape: "rect"
+        x_min: -25
+        x_max: 0
+        y_min: -25
+        y_max: 25
+      count: 80
+      distribution_ref: "clustered.yaml"
+
+    - name: "east_regular"
+      region:
+        shape: "rect"
+        x_min: 0
+        x_max: 25
+        y_min: -25
+        y_max: 25
+      count: 70
+      distribution_ref: "regular.yaml"
+
+  transitions:
+    enabled: false

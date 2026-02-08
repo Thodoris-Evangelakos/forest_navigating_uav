@@ -1,0 +1,3 @@
+include:
+  world: "configs/worldgen/world.default.yaml"
+  layout: "configs/worldgen/layouts/mixed_zones.yaml"

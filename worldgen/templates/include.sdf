@@ -1,0 +1,5 @@
+    <include>
+        <name>{name}</name>
+        <pose>{x} {y} {z} 0 0 {yaw}</pose>
+        <uri>{uri}</uri>
+    </include>

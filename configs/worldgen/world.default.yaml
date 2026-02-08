@@ -1,0 +1,39 @@
+# configuration for dynamic worldgen
+# the idea is for this to be the "base" config that defines the worldgen parameters
+# then we can have different "layout" configs that define how the distribution of obstacles is done 
+
+# output
+world_name: "randomized_world"
+output_file: "randomized_world.sdf"
+
+# gen parameters
+generation:
+  area_size: 50  # K*K area size
+  object_count: 150  # number of obstacles generated
+  min_distance: 2.0  # min distance between obstacles
+  # CURRENTLY USELESS
+  min_tree_height: 0.8  # min tree height scale
+  max_tree_height: 1.2  # max tree height scale
+
+# model URIs
+# locally for me it's $HOME/gazebo_models or smth like that
+models:
+  - uri: "https://fuel.gazebosim.org/1.0/OpenRobotics/models/Pine Tree"
+
+# physics conf
+physics:
+  max_step_size: 0.001
+  real_time_factor: 1.0
+
+# lighting config
+lighting:
+  cast_shadows: true
+  pose: "0 0 10 0 0 0"
+  diffuse: "0.8 0.8 0.8 1"
+  specular: "0.2 0.2 0.2 1"
+  attenuation:
+    range: 1000
+    constant: 0.9
+    linear: 0.01
+    quadratic: 0.001
+  direction: "-0.5 0.1 -0.9"

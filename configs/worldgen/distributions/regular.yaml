@@ -1,0 +1,4 @@
+distribution:
+  type: "regular"
+  params:
+    min_distance: 2.0     # can override world constraint, possibly in the future

@@ -1,0 +1,23 @@
+# blending distributions using mixter field
+layout:
+  type: "mixture_field"
+  world:
+    area_size: 80
+    min_distance: 1.5
+    total_count: 200
+
+  components:
+    - name: "clustered"
+      distribution_ref: "clustered.yaml"
+      weight: 0.67
+    - name: "regular"
+      distribution_ref: "regular.yaml"
+      weight: 0.33
+
+  field:
+    # mixture weight w(x,y) in [0,1] for "clustered"
+    kind: "sigmoid_x"
+    center_x: 0.0
+    width: 8.0        # larger = smoother transition
+
+  total_count: 150

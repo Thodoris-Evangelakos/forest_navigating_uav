@@ -1,0 +1,35 @@
+<?sdf version="1.0" ?>
+<sdf version="1.8">
+  <world name="{world_name}">
+    <physics name="1ms" type="ignored">
+      <max_step_size>{max_step_size}</max_step_size>
+      <real_time_factor>{real_time_factor}</real_time_factor>
+    </physics>
+
+    <plugin filename="gz-sim-physics-system"
+            name="gz::sim::systems::Physics" />
+
+    <plugin filename="gz-sim-user-commands-system"
+            name="gz::sim::systems::UserCommands" />
+
+    <plugin filename="gz-sim-scene-broadcaster-system"
+            name="gz::sim::systems::SceneBroadcaster" />
+
+    <light type="directional" name="sun">
+      <cast_shadows>{cast_shadows}</cast_shadows>
+      <pose>{light_pose}</pose>
+      <diffuse>{light_diffuse}</diffuse>
+      <specular>{light_specular}</specular>
+      <attenuation>
+        <range>{light_range}</range>
+        <constant>{light_constant}</constant>
+        <linear>{light_linear}</linear>
+        <quadratic>{light_quadratic}</quadratic>
+      </attenuation>
+      <direction>{light_direction}</direction>
+    </light>
+  <!-- Randomly generated includes -->
+{include_blocks}
+
+  </world>
+</sdf>
