@@ -12,7 +12,10 @@ from . import layouts
 from . import export
 from . import spatial_stats
 from .config import load_config, load_template, resolve_path
-from .generate_world import main
+
+# NOTE: generate_world.main is intentionally NOT imported here.
+# It is a CLI entry point executed via `python -m`, and eagerly importing it
+# causes a RuntimeWarning ("found in sys.modules … prior to execution").
 
 __all__ = [
     'patterns',
@@ -22,5 +25,4 @@ __all__ = [
     'load_config',
     'load_template',
     'resolve_path',
-    'main',
 ]
