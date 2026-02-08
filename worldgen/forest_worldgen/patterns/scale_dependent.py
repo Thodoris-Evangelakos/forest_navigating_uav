@@ -7,13 +7,13 @@ adult trees compete and thin each other out.
 
 Algorithm
 ---------
-1.  Generate an *over-sampled* clustered pattern (Neyman–Scott) using
+1.  Generate an *over-sampled* clustered pattern (Neyman-Scott) using
     ``sample_clustered`` with a small hard ``min_distance``.
 2.  Apply a **secondary thinning** pass at a larger inhibition scale
     ``d_mid``:
-        * Deterministic mode (default) – greedily remove the later of
+        * Deterministic mode (default) - greedily remove the later of
           any two points closer than ``d_mid``.
-        * Probabilistic mode – for each pair closer than ``d_mid``,
+        * Probabilistic mode - for each pair closer than ``d_mid``,
           remove one with probability ``thin_probability``.
 3.  If thinning removed too many points, top up with additional
     clustered children (using the same parents) to approach the

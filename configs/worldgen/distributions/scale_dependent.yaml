@@ -2,8 +2,8 @@ distribution:
   type: "scale_dependent"
   params:
     # --- cluster phase (forwarded to sample_clustered) ---
-    cluster_count: 12              # C  – number of parent centres
-    cluster_radius: 3.0            # r_c – small-scale scatter radius
+    cluster_count: 12              # C  - number of parent centres
+    cluster_radius: 3.0            # r_c - small-scale scatter radius
     scatter_shape: "gaussian"      # 'gaussian' | 'uniform_disk'
     mean_per_cluster: 10           # expected children per parent
     min_parent_distance: 1.5       # spacing between parent centres
