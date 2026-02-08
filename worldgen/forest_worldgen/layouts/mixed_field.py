@@ -119,12 +119,10 @@ def generate_mixed_field(layout_config, world_config, project_root):
     
     Returns list of (x, y) positions
     """
-    layout_world = layout_config['layout'].get('world', {}) or {}
-    K = layout_world.get('area_size', world_config['generation']['area_size'])
-    min_distance = layout_world.get('min_distance', world_config['generation']['min_distance'])
-    total_count = layout_world.get('total_count', layout_config['layout'].get('total_count'))
-    if total_count is None:
-        total_count = world_config['generation'].get('object_count', 0)
+    # World-level params always come from world.default.yaml (single source of truth)
+    K = world_config['generation']['area_size']
+    min_distance = world_config['generation']['min_distance']
+    total_count = world_config['generation']['object_count']
     components = layout_config['layout'].get('components', [])
     field_cfg = layout_config['layout'].get('field', {}) or {}
     max_attempts = int(layout_config['layout'].get('max_attempts', 200))

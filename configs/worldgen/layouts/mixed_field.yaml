@@ -1,10 +1,8 @@
-# blending distributions using mixter field
+# blending distributions using mixture field
+# NOTE: world-level params (area_size, object_count, min_distance) come from
+#       world.default.yaml — do NOT duplicate them here.
 layout:
   type: "mixture_field"
-  world:
-    area_size: 80
-    min_distance: 1.5
-    total_count: 200
 
   components:
     - name: "clustered"
@@ -19,5 +17,3 @@ layout:
     kind: "sigmoid_x"
     center_x: 0.0
     width: 8.0        # larger = smoother transition
-
-  total_count: 150

@@ -1,6 +1,7 @@
 # configuration for dynamic worldgen
-# the idea is for this to be the "base" config that defines the worldgen parameters
-# then we can have different "layout" configs that define how the distribution of obstacles is done 
+# ── SINGLE SOURCE OF TRUTH for world-level parameters (K, N, min_distance) ──
+# Layout configs (mixed_field.yaml, mixed_zones.yaml, …) describe *how* objects
+# are arranged but must NOT redefine these values.
 
 # output
 world_name: "randomized_world"
@@ -8,9 +9,9 @@ output_file: "randomized_world.sdf"
 
 # gen parameters
 generation:
-  area_size: 50  # K*K area size
-  object_count: 150  # number of obstacles generated
-  min_distance: 2.0  # min distance between obstacles
+  area_size: 80       # K×K world size (metres)
+  object_count: 200   # total number of obstacles to generate
+  min_distance: 1.5   # hard minimum distance between any two obstacles (metres)
   # CURRENTLY USELESS
   min_tree_height: 0.8  # min tree height scale
   max_tree_height: 1.2  # max tree height scale
