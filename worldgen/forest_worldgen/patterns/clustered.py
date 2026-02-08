@@ -73,8 +73,10 @@ def sample_clustered(count, region, K, min_distance, existing_positions, params)
             else:
                 positions.append((x, y))
 
-    # background fill
-    bg = sample_csr(n_background, region, K, min_distance, existing_positions + positions, {})
+    # background fill  (use world min_distance as overlap guard)
+    bg = sample_csr(n_background, region, K, min_distance,
+                    existing_positions + positions,
+                    {'use_world_min_distance': True})
     positions.extend(bg)
 
     return positions

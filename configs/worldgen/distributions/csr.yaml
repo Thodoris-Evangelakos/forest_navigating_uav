@@ -1,3 +1,5 @@
 distribution:
   type: "csr"
-  params: {}
+  params:
+    overlap_guard: 0.3          # small guard to prevent exact overlaps (0 = pure CSR)
+    use_world_min_distance: false  # true → fall back to world min_distance
