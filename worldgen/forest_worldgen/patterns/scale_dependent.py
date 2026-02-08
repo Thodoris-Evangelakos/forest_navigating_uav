@@ -43,7 +43,7 @@ Validation targets (logged, not enforced):
 import math
 import random
 
-from .csr import _check_min_distance, _point_in_area, _point_in_rect
+from .csr import _check_min_distance, _point_in_area, _point_in_rect, ProximityGrid
 from .clustered import (
     sample_clustered,
     _place_parents,
@@ -69,13 +69,13 @@ def _thin_deterministic(positions, d_mid):
     indices = list(range(len(positions)))
     random.shuffle(indices)
 
-    accepted_idx = []
+    grid = ProximityGrid(d_mid)
     accepted_pts = []
     for i in indices:
         x, y = positions[i]
-        if _check_min_distance(x, y, accepted_pts, d_mid):
-            accepted_idx.append(i)
+        if grid.check(x, y, d_mid):
             accepted_pts.append((x, y))
+            grid.insert(x, y)
 
     return accepted_pts
 
@@ -90,14 +90,17 @@ def _thin_probabilistic(positions, d_mid, p_remove=0.8):
     indices = list(range(len(positions)))
     random.shuffle(indices)
 
+    grid = ProximityGrid(d_mid)
     accepted_pts = []
     for i in indices:
         x, y = positions[i]
-        if _check_min_distance(x, y, accepted_pts, d_mid):
+        if grid.check(x, y, d_mid):
             accepted_pts.append((x, y))
+            grid.insert(x, y)
         elif random.random() > p_remove:
             # survived the thinning coin-flip
             accepted_pts.append((x, y))
+            grid.insert(x, y)
 
     return accepted_pts
 
@@ -118,7 +121,9 @@ def _topup(positions, deficit, parents, cluster_radius, scatter_fn,
     clusters can't reach).
     """
     added = []
-    all_pts = list(positions)
+    # Build grids for both distance thresholds
+    grid_min = ProximityGrid(min_distance, positions) if min_distance > 0 else None
+    grid_mid = ProximityGrid(d_mid, positions)
     attempts = 0
     total_budget = deficit * max_attempts
 
@@ -137,13 +142,15 @@ def _topup(positions, deficit, parents, cluster_radius, scatter_fn,
 
         x, y = _clamp_to_bounds(x, y, region, K)
 
-        if not _check_min_distance(x, y, all_pts, min_distance):
+        if grid_min is not None and not grid_min.check(x, y, min_distance):
             continue
-        if not _check_min_distance(x, y, all_pts, d_mid):
+        if not grid_mid.check(x, y, d_mid):
             continue
 
         added.append((x, y))
-        all_pts.append((x, y))
+        if grid_min is not None:
+            grid_min.insert(x, y)
+        grid_mid.insert(x, y)
 
     return added
 
@@ -202,9 +209,10 @@ def sample_scale_dependent(count, region, K, min_distance, existing_positions, p
 
     # also enforce d_mid against existing_positions
     if existing_positions:
+        existing_grid = ProximityGrid(d_mid, existing_positions)
         final = []
         for x, y in thinned:
-            if _check_min_distance(x, y, existing_positions, d_mid):
+            if existing_grid.check(x, y, d_mid):
                 final.append((x, y))
         thinned = final
 

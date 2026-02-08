@@ -35,7 +35,7 @@ Validation targets (logged, not enforced):
 
 import random
 import math
-from .csr import sample_csr, _point_in_rect, _point_in_area, _check_min_distance
+from .csr import sample_csr, _point_in_rect, _point_in_area, _check_min_distance, ProximityGrid
 
 
 # ---------------------------------------------------------------------------
@@ -212,7 +212,8 @@ def sample_clustered(count, region, K, min_distance, existing_positions, params)
     child_counts = _poisson_child_counts(cluster_count, n_clustered,
                                           mean_per_cluster)
 
-    # --- 3. scatter children ---
+    # --- 3. scatter children (grid-accelerated proximity checks) ---
+    grid = ProximityGrid(min_distance, existing_positions) if min_distance > 0 else None
     positions = []
     relaxed = 0
     max_attempts = 200
@@ -223,16 +224,18 @@ def sample_clustered(count, region, K, min_distance, existing_positions, params)
             for _ in range(max_attempts):
                 x, y = scatter_fn(cx, cy, cluster_radius)
                 x, y = _clamp_to_bounds(x, y, region, K)
-                if _check_min_distance(x, y,
-                                       existing_positions + positions,
-                                       min_distance):
+                if grid is None or grid.check(x, y, min_distance):
                     positions.append((x, y))
+                    if grid is not None:
+                        grid.insert(x, y)
                     placed = True
                     break
             if not placed:
                 x, y = scatter_fn(cx, cy, cluster_radius)
                 x, y = _clamp_to_bounds(x, y, region, K)
                 positions.append((x, y))
+                if grid is not None:
+                    grid.insert(x, y)
                 relaxed += 1
 
     if relaxed:
@@ -240,8 +243,9 @@ def sample_clustered(count, region, K, min_distance, existing_positions, params)
               f"{relaxed}/{n_clustered} clustered points")
 
     # --- 4. background fill ---
+    all_so_far = existing_positions + positions
     bg = sample_csr(n_background, region, K, min_distance,
-                    existing_positions + positions,
+                    all_so_far,
                     {'use_world_min_distance': True})
     positions.extend(bg)
 

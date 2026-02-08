@@ -12,24 +12,24 @@ def positions_to_includes(positions, model_uris, min_height, max_height, include
     
     Returns string of concatenated include blocks
     """
-    includes = []
-    for i, (x, y) in enumerate(positions):
-        uri = random.choice(model_uris)
-        z = 0
-        height_scale = random.uniform(min_height, max_height)
-        yaw = random.uniform(-math.pi, math.pi)
+    n = len(positions)
+    # Pre-generate random choices in bulk for less per-iteration overhead
+    uris = [model_uris[int(random.random() * len(model_uris))] for _ in range(n)]
+    yaws = [random.uniform(-math.pi, math.pi) for _ in range(n)]
+    heights = [random.uniform(min_height, max_height) for _ in range(n)]
 
-        include_block = include_template.format(
+    parts = []
+    for i, (x, y) in enumerate(positions):
+        parts.append(include_template.format(
             name=f"object_{i}",
             x=f"{x:.2f}",
             y=f"{y:.2f}",
-            z=f"{z:.2f}",
-            yaw=f"{yaw:.2f}",
-            uri=uri,
-        )
-        includes.append(include_block)
+            z="0.00",
+            yaw=f"{yaws[i]:.2f}",
+            uri=uris[i],
+        ))
 
-    return "\n".join(includes)
+    return "\n".join(parts)
 
 
 def build_world_sdf(include_blocks, config, world_template):

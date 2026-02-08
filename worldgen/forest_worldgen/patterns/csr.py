@@ -35,11 +35,66 @@ def _point_in_area(K):
 
 
 def _check_min_distance(x, y, positions, min_distance):
-    """Return True if (x, y) is at least *min_distance* from every position."""
+    """Return True if (x, y) is at least *min_distance* from every position.
+    
+    Brute-force O(n) fallback — prefer using ProximityGrid for hot loops.
+    """
     for px, py in positions:
         if math.hypot(x - px, y - py) < min_distance:
             return False
     return True
+
+
+# ---------------------------------------------------------------------------
+# Grid-based spatial index for O(1) amortised proximity checks
+# ---------------------------------------------------------------------------
+
+class ProximityGrid:
+    """Uniform grid that accelerates minimum-distance queries.
+    
+    Cell size equals *min_distance* so only a 5×5 neighbourhood
+    needs checking — constant-time per query regardless of total
+    point count.
+    """
+
+    __slots__ = ('cell', 'grid', 'points')
+
+    def __init__(self, min_distance, initial_points=None):
+        self.cell = max(min_distance, 1e-9)
+        self.grid = {}          # (col, row) -> list of (x, y)
+        self.points = []
+        if initial_points:
+            for pt in initial_points:
+                self.insert(*pt)
+
+    def _key(self, x, y):
+        return (int(math.floor(x / self.cell)),
+                int(math.floor(y / self.cell)))
+
+    def insert(self, x, y):
+        """Add a point to the grid."""
+        k = self._key(x, y)
+        bucket = self.grid.get(k)
+        if bucket is None:
+            self.grid[k] = [(x, y)]
+        else:
+            bucket.append((x, y))
+        self.points.append((x, y))
+
+    def check(self, x, y, min_distance):
+        """Return True if (x, y) is >= *min_distance* from every stored point."""
+        min_d_sq = min_distance * min_distance
+        gc, gr = self._key(x, y)
+        for dr in range(-2, 3):
+            for dc in range(-2, 3):
+                bucket = self.grid.get((gc + dc, gr + dr))
+                if bucket is not None:
+                    for px, py in bucket:
+                        dx = x - px
+                        dy = y - py
+                        if dx * dx + dy * dy < min_d_sq:
+                            return False
+        return True
 
 
 # ---------------------------------------------------------------------------
@@ -90,8 +145,12 @@ def sample_csr(count, region, K, min_distance, existing_positions, params):
 
     max_attempts = int(params.get('max_attempts', 200))
 
+    # Use grid-accelerated proximity checks when guard > 0
+    use_grid = guard > 0
+    if use_grid:
+        grid = ProximityGrid(guard, existing_positions)
+    
     positions = []
-    all_existing = list(existing_positions)   # mutable working copy
     relaxed_count = 0
 
     for _ in range(count):
@@ -102,8 +161,14 @@ def sample_csr(count, region, K, min_distance, existing_positions, params):
             else:
                 x, y = _point_in_area(K)
 
-            if guard <= 0 or _check_min_distance(x, y, all_existing + positions, guard):
+            if not use_grid:
                 positions.append((x, y))
+                placed = True
+                break
+
+            if grid.check(x, y, guard):
+                positions.append((x, y))
+                grid.insert(x, y)
                 placed = True
                 break
 
@@ -114,6 +179,8 @@ def sample_csr(count, region, K, min_distance, existing_positions, params):
             else:
                 x, y = _point_in_area(K)
             positions.append((x, y))
+            if use_grid:
+                grid.insert(x, y)
             relaxed_count += 1
 
     if relaxed_count:

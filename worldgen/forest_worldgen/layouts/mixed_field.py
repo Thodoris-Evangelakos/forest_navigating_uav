@@ -5,7 +5,7 @@ Mixture field layout - smooth blending between two distributions
 import random
 import math
 from ..config import load_distribution
-from ..patterns.csr import _point_in_area, _check_min_distance
+from ..patterns.csr import _point_in_area, _check_min_distance, ProximityGrid
 from ..patterns.clustered import _scatter_gaussian, _scatter_uniform_disk, _SCATTER_FNS
 
 
@@ -178,6 +178,7 @@ def generate_mixed_field(layout_config, world_config, project_root):
     all_positions = []
     counts = [0] * len(dists)
     warned = False
+    grid = ProximityGrid(min_distance) if min_distance > 0 else None
 
     for _ in range(total_count):
         placed = False
@@ -186,9 +187,11 @@ def generate_mixed_field(layout_config, world_config, project_root):
             x, y = dists[chosen]['sampler']()
             if random.random() > _component_field_weight(chosen, x, y):
                 continue
-            if not _check_min_distance(x, y, all_positions, min_distance):
+            if grid is not None and not grid.check(x, y, min_distance):
                 continue
             all_positions.append((x, y))
+            if grid is not None:
+                grid.insert(x, y)
             counts[chosen] += 1
             placed = True
             break
@@ -196,6 +199,8 @@ def generate_mixed_field(layout_config, world_config, project_root):
             chosen = _weighted_choice(base_weights, total_weight)
             x, y = dists[chosen]['sampler']()
             all_positions.append((x, y))
+            if grid is not None:
+                grid.insert(x, y)
             counts[chosen] += 1
             if not warned:
                 print("Warning: relaxed placement constraints in mixture_field")

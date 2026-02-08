@@ -11,7 +11,13 @@ domain [-L/2, L/2]^2 and return JSON-serialisable dicts / lists.
 """
 
 import math
-from collections import defaultdict
+
+try:
+    import numpy as np
+    from scipy.spatial import KDTree
+    _HAS_SCIPY = True
+except ImportError:
+    _HAS_SCIPY = False
 
 
 # ---------------------------------------------------------------------------
@@ -19,10 +25,22 @@ from collections import defaultdict
 # ---------------------------------------------------------------------------
 
 def _nn_distances(positions):
-    """Return list of nearest-neighbour distances (brute force, fine for < ~5k)."""
+    """Return list of nearest-neighbour distances.
+    
+    Uses scipy KDTree for O(n log n) when available, falls back to
+    brute-force O(n²) otherwise.
+    """
     n = len(positions)
     if n < 2:
         return []
+
+    if _HAS_SCIPY:
+        pts = np.asarray(positions, dtype=np.float64)
+        tree = KDTree(pts)
+        dists, _ = tree.query(pts, k=2)  # k=2: closest is self (dist=0)
+        return dists[:, 1].tolist()
+
+    # brute-force fallback
     nn = []
     for i in range(n):
         xi, yi = positions[i]
@@ -37,9 +55,23 @@ def _nn_distances(positions):
     return nn
 
 
-def _pairwise_distances(positions):
-    """Return flat list of all pairwise distances (no duplicates)."""
+def _pairwise_distances(positions, r_max=None):
+    """Return flat list of pairwise distances (no duplicates).
+    
+    When *r_max* is given and scipy is available, uses KDTree.sparse_distance_matrix
+    to avoid materialising all n*(n-1)/2 pairs — only pairs within r_max are stored.
+    """
     n = len(positions)
+
+    if _HAS_SCIPY and r_max is not None and r_max > 0:
+        pts = np.asarray(positions, dtype=np.float64)
+        tree = KDTree(pts)
+        sparse = tree.sparse_distance_matrix(tree, r_max, output_type='ndarray')
+        # sparse is structured array with (i, j, v); i < j not guaranteed
+        dists = [float(row[2]) for row in sparse if row[0] < row[1]]
+        return dists
+
+    # full brute-force fallback (or when r_max is None)
     dists = []
     for i in range(n):
         xi, yi = positions[i]
@@ -92,12 +124,17 @@ def pair_correlation(positions, area, r_max=None, n_bins=25):
         return []
 
     density = n / area
-    dists = _pairwise_distances(positions)
-    if not dists:
-        return []
 
     if r_max is None:
+        # need all distances to determine r_max; fall back to full computation
+        dists = _pairwise_distances(positions)
+        if not dists:
+            return []
         r_max = max(dists) * 0.5  # don't trust edge region
+    else:
+        dists = _pairwise_distances(positions, r_max=r_max)
+        if not dists:
+            return []
 
     dr = r_max / n_bins
     if dr <= 0:
@@ -144,12 +181,12 @@ def ripley_L_minus_r(positions, area, r_max=None, n_bins=25):
     if n < 2 or area <= 0:
         return []
 
-    dists = _pairwise_distances(positions)
-    dists.sort()
-
     if r_max is None:
         half_side = math.sqrt(area) / 2.0
         r_max = half_side * 0.5
+
+    dists = _pairwise_distances(positions, r_max=r_max)
+    dists.sort()
 
     dr = r_max / n_bins
     if dr <= 0:
