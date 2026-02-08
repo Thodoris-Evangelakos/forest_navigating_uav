@@ -6,6 +6,7 @@ import random
 import math
 from ..config import load_distribution
 from ..patterns.csr import _point_in_area, _check_min_distance
+from ..patterns.clustered import _scatter_gaussian, _scatter_uniform_disk, _SCATTER_FNS
 
 
 def _sigmoid(x, center, width):
@@ -57,7 +58,7 @@ def _field_value(kind, x, y, K, cfg):
 def _build_candidate_sampler(dist_type, params, K):
     """Build a candidate point sampler for mixture-field placement.
 
-    For ``regular`` we still return uniform candidates – the hard min-distance
+    For ``regular`` we still return uniform candidates - the hard min-distance
     constraint is already enforced by the outer placement loop in
     ``generate_mixed_field``.  The spatial inhibition in the standalone
     ``sample_regular`` (Bridson Poisson-disc) is used when the regular
@@ -70,11 +71,19 @@ def _build_candidate_sampler(dist_type, params, K):
     if dist_type == 'clustered':
         cluster_count = max(1, int(params.get('cluster_count', 5)))
         cluster_radius = float(params.get('cluster_radius', 3.0))
+        scatter_shape = params.get('scatter_shape', 'gaussian')
+        allow_overlap = bool(params.get('allow_cluster_overlap', False))
+        min_parent_dist = (0.0 if allow_overlap
+                           else float(params.get('min_parent_distance',
+                                                  cluster_radius * 0.5)))
+
+        scatter_fn = _SCATTER_FNS.get(scatter_shape, _scatter_gaussian)
+
         parents = []
         for _ in range(cluster_count):
             for _ in range(60):
                 cx, cy = _point_in_area(K)
-                if _check_min_distance(cx, cy, parents, cluster_radius * 0.5):
+                if min_parent_dist <= 0 or _check_min_distance(cx, cy, parents, min_parent_dist):
                     parents.append((cx, cy))
                     break
             else:
@@ -83,10 +92,7 @@ def _build_candidate_sampler(dist_type, params, K):
         def _sample_clustered():
             if parents:
                 cx, cy = random.choice(parents)
-                angle = random.uniform(0, 2 * math.pi)
-                r = random.gauss(0, cluster_radius / 2)
-                x = cx + r * math.cos(angle)
-                y = cy + r * math.sin(angle)
+                x, y = scatter_fn(cx, cy, cluster_radius)
                 x = max(-K / 2, min(K / 2, x))
                 y = max(-K / 2, min(K / 2, y))
                 return x, y

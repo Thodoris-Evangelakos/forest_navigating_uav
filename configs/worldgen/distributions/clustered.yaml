@@ -1,7 +1,10 @@
 distribution:
   type: "clustered"
   params:
-    cluster_count: 6
-    cluster_radius: 4.0
-    points_per_cluster_mean: 8
-    background_fraction: 0.15
+    cluster_count: 6                # C  - number of parent centres
+    cluster_radius: 4.0             # r_c - scatter radius around each parent
+    scatter_shape: "gaussian"       # 'gaussian' | 'uniform_disk'
+    mean_per_cluster: 10            # expected children per parent (Poisson mean)
+    min_parent_distance: 2.0        # hard spacing between parent centres (0 = free)
+    allow_cluster_overlap: false    # if true, min_parent_distance is ignored
+    background_fraction: 0.15       # fraction of total count placed as CSR fill
