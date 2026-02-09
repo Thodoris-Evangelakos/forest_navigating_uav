@@ -1,42 +1,120 @@
 #!/bin/bash
 
-# Script to spawn a UAV at an edge location
-# Usage: ./spawn_uav.sh [config_file] [--seed SEED] [--margin MARGIN] [--height HEIGHT] [--count COUNT] [--dist DIST]
+# Script to calculate and spawn a UAV at an edge location
+# Usage: ./spawn_uav.sh <world_sdf_path> [--index INDEX] [--margin MARGIN] [--height HEIGHT]
+#
+# This script calculates spawn points on-the-fly from the world config and spawns
+# the UAV at the specified index (default 0).
 #
 # Defaults:
-#   - config_file: ../configs/worldgen/worldgen_run.yaml
+#   - index: 0 (first spawn point)
 #   - margin: 1.0 m
 #   - height: 2.0 m
-#   - count: 4 spawns
-#   - dist: uniform
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
-CONFIG_FILE="${1:-$PROJECT_ROOT/configs/worldgen/worldgen_run.yaml}"
 
-if [ ! -f "$CONFIG_FILE" ]; then
-    echo "Error: Config file not found: $CONFIG_FILE"
-    echo "Usage: $0 [config_file] [--seed SEED] [--margin MARGIN] [--height HEIGHT] [--count COUNT] [--dist DIST]"
+if [ $# -lt 1 ]; then
+    echo "Usage: $0 <world_sdf_path> [--index INDEX] [--margin MARGIN] [--height HEIGHT]"
+    echo ""
+    echo "Example:"
+    echo "  $0 worldgen/outputs/runs/2026-02-09_123456_random/world.sdf --index 0"
     exit 1
 fi
 
-echo "Calculating spawn points from config: $CONFIG_FILE"
+WORLD_FILE="$1"
+shift
 
-# Build command with remaining args
-CMD="python3 -m worldgen.forest_worldgen.spawn_utils \"$CONFIG_FILE\""
+if [ ! -f "$WORLD_FILE" ]; then
+    echo "Error: World file not found: $WORLD_FILE"
+    exit 1
+fi
 
-# Pass through all remaining arguments
-for arg in "${@:2}"; do
-    CMD="$CMD \"$arg\""
+# Get the directory containing world.sdf to find meta.json
+WORLD_DIR="$(dirname "$WORLD_FILE")"
+META_FILE="$WORLD_DIR/meta.json"
+
+if [ ! -f "$META_FILE" ]; then
+    echo "Error: Metadata file not found: $META_FILE"
+    exit 1
+fi
+
+# Parse arguments
+INDEX=0
+MARGIN=1.0
+HEIGHT=2.0
+
+while [ $# -gt 0 ]; do
+    case "$1" in
+        --index)
+            INDEX="$2"
+            shift 2
+            ;;
+        --margin)
+            MARGIN="$2"
+            shift 2
+            ;;
+        --height)
+            HEIGHT="$2"
+            shift 2
+            ;;
+        *)
+            shift
+            ;;
+    esac
 done
 
-eval $CMD
+# Calculate spawn point on-the-fly using Python
+SPAWN_POINT=$(python3 -c "
+import json
+import random
+import math
+
+# Read area_size from meta.json
+with open('$META_FILE', 'r') as f:
+    meta = json.load(f)
+    area_size = meta['area_size']
+
+# Calculate edge spawn
+margin = $MARGIN
+height = $HEIGHT
+half_side = area_size / 2.0
+edge = half_side - margin
+
+# Generate 4 corner spawn points
+spawns = [
+    {'x': -edge, 'y': edge, 'z': height},   # NW
+    {'x': -edge, 'y': -edge, 'z': height},  # SW
+    {'x': edge, 'y': -edge, 'z': height},   # SE
+    {'x': edge, 'y': edge, 'z': height},    # NE
+]
+
+idx = $INDEX % len(spawns)
+pt = spawns[idx]
+print(f\"{pt['x']:.2f} {pt['y']:.2f} {pt['z']:.2f}\")
+")
+
+read X Y Z <<< "$SPAWN_POINT"
+
+echo "Spawning UAV at edge position [$INDEX]: x=$X, y=$Y, z=$Z"
+
+# Extract world name from world.sdf
+WORLD_NAME=$(python3 -c "
+import re
+with open('$WORLD_FILE', 'r') as f:
+    content = f.read()
+    match = re.search(r'<world name=\"([^\"]+)\">', content)
+    if match:
+        print(match.group(1))
+    else:
+        print('randomized_world')
+")
+
+ros2 run ros_gz_sim create -world "$WORLD_NAME" -name uav1 -file models/drones/uav_simple/model.sdf -x "$X" -y "$Y" -z "$Z"
 
 if [ $? -eq 0 ]; then
-    echo ""
-    echo "Spawn points calculated successfully!"
-    echo "Spawn metadata saved to: $PROJECT_ROOT/worldgen/outputs/latest/spawn_points.json"
+    echo "UAV spawned successfully!"
 else
-    echo "Spawn point calculation failed!"
+    echo "Error: UAV spawn failed!"
     exit 1
 fi

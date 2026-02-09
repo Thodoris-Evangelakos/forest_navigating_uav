@@ -10,7 +10,7 @@ output_file: "randomized_world.sdf"
 # gen parameters
 generation:
   area_size: 50       # K×K world size (metres)
-  object_count: 1000   # total number of obstacles to generate
+  object_count: 50   # total number of obstacles to generate
   min_distance: 0.5   # hard minimum distance between any two obstacles (metres)
   # CURRENTLY USELESS
   min_tree_height: 0.8  # min tree height scale

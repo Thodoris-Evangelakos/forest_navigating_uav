@@ -89,46 +89,30 @@ def main():
         print(f"validation    : R={R}  g_small={g_s}  L_small={L_s}")
 
         # --- Prepare output directory ---
-        output_dir = os.path.join(worldgen_root, 'outputs', 'latest')
+        # Always save to timestamped run directory
+        timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
+        if seed is not None:
+            run_name = f'{timestamp}_seed{seed:04d}'
+        else:
+            run_name = f'{timestamp}_random'
+        
+        output_dir = os.path.join(worldgen_root, 'outputs', 'runs', run_name)
         os.makedirs(output_dir, exist_ok=True)
 
-        # Also save to timestamped run directory if seed provided
-        if seed is not None:
-            timestamp = datetime.now().strftime('%Y-%m-%d_%H%M')
-            run_dir = os.path.join(worldgen_root, 'outputs', 'runs', f'{timestamp}_seed{seed:04d}')
-            os.makedirs(run_dir, exist_ok=True)
-        else:
-            run_dir = None
-
-        # --- Export SDF (build once, write/copy to both dirs) ---
+        # --- Export SDF ---
         sdf_path = os.path.join(output_dir, 'world.sdf')
         export_sdf(positions, world_config, world_template, include_template, sdf_path)
         print(f"generated sdf : {sdf_path}")
 
-        if run_dir:
-            run_sdf_path = os.path.join(run_dir, 'world.sdf')
-            shutil.copy2(sdf_path, run_sdf_path)
-            print(f"              : {run_sdf_path}")
-
-        # --- Export metadata (build once, write/copy to both dirs) ---
+        # --- Export metadata ---
         meta_path = os.path.join(output_dir, 'meta.json')
         export_meta(positions, world_config, layout_config, meta_path, seed)
         print(f"metadata      : {meta_path}")
 
-        if run_dir:
-            run_meta_path = os.path.join(run_dir, 'meta.json')
-            shutil.copy2(meta_path, run_meta_path)
-            print(f"              : {run_meta_path}")
-
-        # --- Generate preview (render once, copy to run dir) ---
+        # --- Generate preview ---
         preview_path = os.path.join(output_dir, 'preview.png')
         generate_preview(positions, world_config, preview_path)
         print(f"preview       : {preview_path}")
-
-        if run_dir:
-            run_preview_path = os.path.join(run_dir, 'preview.png')
-            shutil.copy2(preview_path, run_preview_path)
-            print(f"              : {run_preview_path}")
 
     except Exception as e:
         print(f"Error: {e}")

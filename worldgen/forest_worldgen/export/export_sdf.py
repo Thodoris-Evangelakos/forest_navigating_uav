@@ -40,6 +40,11 @@ def build_world_sdf(include_blocks, config, world_template):
     """
     lighting = config['lighting']
     physics = config['physics']
+    generation = config['generation']
+    
+    # Scale ground plane to be larger than world area to prevent falling through edges
+    # Use 1.5x the area_size to provide margin beyond world boundaries
+    ground_size = generation['area_size'] * 1.5
 
     return world_template.format(
         world_name=config['world_name'],
@@ -54,6 +59,7 @@ def build_world_sdf(include_blocks, config, world_template):
         light_linear=lighting['attenuation']['linear'],
         light_quadratic=lighting['attenuation']['quadratic'],
         light_direction=lighting['direction'],
+        ground_size=ground_size,
         include_blocks=include_blocks,
     )
 
