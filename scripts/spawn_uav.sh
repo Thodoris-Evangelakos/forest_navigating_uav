@@ -73,7 +73,7 @@ import math
 # Read area_size from meta.json
 with open('$META_FILE', 'r') as f:
     meta = json.load(f)
-    area_size = meta['area_size']
+    area_size = meta['world']['area_size']
 
 # Calculate edge spawn
 margin = $MARGIN

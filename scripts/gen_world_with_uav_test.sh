@@ -63,7 +63,8 @@ fi
 
 echo ""
 
-# Find the most recent world.sdf in outputs/runs/
+# find most recent world.sdf in outputs/runs/
+# 
 LATEST_WORLD=$(find "$PROJECT_ROOT/worldgen/outputs/runs" -name "world.sdf" -type f -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
 
 if [ ! -f "$LATEST_WORLD" ]; then
@@ -80,11 +81,10 @@ echo "Starting Gazebo in background..."
 gz sim "$LATEST_WORLD" &
 GZ_PID=$!
 
-# Wait for Gazebo to initialize
 echo "Waiting for Gazebo to initialize (10 seconds)..."
 sleep 10
 
-# Check if Gazebo is still running
+# check if gz is still running
 if ! ps -p $GZ_PID > /dev/null; then
     echo "Error: Gazebo failed to start!"
     exit 1
@@ -110,7 +110,8 @@ if [ $? -eq 0 ]; then
     echo "Press Ctrl+C to keep Gazebo running and exit script"
     echo "or wait..."
     
-    # Keep script running so user can interact with Gazebo
+    # keep script alive in order to play around with gazebo
+    # will prob need to change during training
     wait $GZ_PID
 else
     echo "Error: UAV spawn failed!"
