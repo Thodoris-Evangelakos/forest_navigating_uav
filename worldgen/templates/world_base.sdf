@@ -14,6 +14,12 @@
 
     <plugin filename="gz-sim-scene-broadcaster-system"
             name="gz::sim::systems::SceneBroadcaster" />
+    
+    <!-- Despite the obvious above, adding sensor support-->
+    <plugin filename="gz-sim-sensors-system"
+            name="gz::sim::systems::Sensors">
+      <render_engine>ogre2</render_engine>
+    </plugin>
 
     <light type="directional" name="sun">
       <cast_shadows>{cast_shadows}</cast_shadows>
