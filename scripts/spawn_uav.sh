@@ -1,15 +1,17 @@
 #!/bin/bash
 
-# Script to calculate and spawn a UAV at an edge location
+# Spawn a UAV at an edge location in an existing world
 # Usage: ./spawn_uav.sh <world_sdf_path> [--index INDEX] [--margin MARGIN] [--height HEIGHT]
 #
-# This script calculates spawn points on-the-fly from the world config and spawns
-# the UAV at the specified index (default 0).
+# Requires: Gazebo must be already running with the specified world loaded
+#
+# This script calculates spawn points on-the-fly from meta.json and spawns
+# the UAV at the specified corner index.
 #
 # Defaults:
-#   - index: 0 (first spawn point)
-#   - margin: 1.0 m
-#   - height: 2.0 m
+#   - index: 0 (NW corner)
+#   - margin: 1.0 m (distance from world edge)
+#   - height: 2.0 m (altitude above ground)
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
