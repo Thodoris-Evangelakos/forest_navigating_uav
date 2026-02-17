@@ -69,11 +69,11 @@ fi
 
 echo ""
 
-# Find the most recent world.sdf in outputs/runs/
-LATEST_WORLD=$(find "$PROJECT_ROOT/worldgen/outputs/runs" -name "world.sdf" -type f -printf '%T@ %p\n' | sort -rn | head -1 | cut -d' ' -f2-)
+# Use latest world output
+LATEST_WORLD="$PROJECT_ROOT/worldgen/outputs/latest/world.sdf"
 
 if [ ! -f "$LATEST_WORLD" ]; then
-    echo "Error: Generated world file not found in outputs/runs/"
+    echo "Error: Generated world file not found: $LATEST_WORLD"
     exit 1
 fi
 

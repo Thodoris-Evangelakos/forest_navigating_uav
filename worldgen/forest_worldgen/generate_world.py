@@ -88,31 +88,45 @@ def main():
         L_s = stats['L_small_r_mean']
         print(f"validation    : R={R}  g_small={g_s}  L_small={L_s}")
 
-        # --- Prepare output directory ---
-        # Always save to timestamped run directory
+        # --- Prepare output directories ---
+        # Always save to timestamped run directory and mirror to outputs/latest
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         if seed is not None:
             run_name = f'{timestamp}_seed{seed:04d}'
         else:
             run_name = f'{timestamp}_random'
-        
-        output_dir = os.path.join(worldgen_root, 'outputs', 'runs', run_name)
-        os.makedirs(output_dir, exist_ok=True)
+
+        run_dir = os.path.join(worldgen_root, 'outputs', 'runs', run_name)
+        latest_dir = os.path.join(worldgen_root, 'outputs', 'latest')
+        os.makedirs(run_dir, exist_ok=True)
+        os.makedirs(latest_dir, exist_ok=True)
 
         # --- Export SDF ---
-        sdf_path = os.path.join(output_dir, 'world.sdf')
+        sdf_path = os.path.join(run_dir, 'world.sdf')
         export_sdf(positions, world_config, world_template, include_template, sdf_path)
         print(f"generated sdf : {sdf_path}")
 
+        latest_sdf_path = os.path.join(latest_dir, 'world.sdf')
+        shutil.copy2(sdf_path, latest_sdf_path)
+        print(f"latest sdf    : {latest_sdf_path}")
+
         # --- Export metadata ---
-        meta_path = os.path.join(output_dir, 'meta.json')
+        meta_path = os.path.join(run_dir, 'meta.json')
         export_meta(positions, world_config, layout_config, meta_path, seed)
         print(f"metadata      : {meta_path}")
 
+        latest_meta_path = os.path.join(latest_dir, 'meta.json')
+        shutil.copy2(meta_path, latest_meta_path)
+        print(f"latest meta   : {latest_meta_path}")
+
         # --- Generate preview ---
-        preview_path = os.path.join(output_dir, 'preview.png')
+        preview_path = os.path.join(run_dir, 'preview.png')
         generate_preview(positions, world_config, preview_path)
         print(f"preview       : {preview_path}")
+
+        latest_preview_path = os.path.join(latest_dir, 'preview.png')
+        shutil.copy2(preview_path, latest_preview_path)
+        print(f"latest prev   : {latest_preview_path}")
 
     except Exception as e:
         print(f"Error: {e}")

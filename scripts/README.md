@@ -36,6 +36,7 @@ Generate a randomized forest world without launching Gazebo.
   - `world.sdf` - Gazebo world file
   - `meta.json` - World metadata
   - `preview.png` - Top-down visualization
+- Latest world is mirrored to: `worldgen/outputs/latest/`
 
 **Example:**
 ```bash
@@ -149,16 +150,17 @@ The world is a square spanning `[-K/2, K/2]²` where `K` is the `area_size` from
 ### 3. Add UAV to existing world
 ```bash
 # First, start Gazebo with a previously generated world
-gz sim worldgen/outputs/runs/2026-02-11_120000_seed0042/world.sdf &
+gz sim worldgen/outputs/latest/world.sdf &
 
 # Then spawn UAV at southeast corner
-./scripts/spawn_uav.sh worldgen/outputs/runs/2026-02-11_120000_seed0042/world.sdf --index 2
+./scripts/spawn_uav.sh worldgen/outputs/latest/world.sdf --index 2
 ```
 
 ### 4. Just generate a world (for later use)
 ```bash
 ./scripts/generate_world.sh --seed 123
 # Output saved to: worldgen/outputs/runs/2026-02-11_HHMMSS_seed0123/
+# Latest mirror: worldgen/outputs/latest/
 ```
 
 ---
