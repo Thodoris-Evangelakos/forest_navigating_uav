@@ -1,6 +1,8 @@
 #from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any, Optional, Tuple
+from pathlib import Path
+import importlib
 
 import numpy as np
 import gymnasium as gym
@@ -39,6 +41,19 @@ class SimParams:
     # safety shield
     shield_floor_z_min: float = 0.05
 
+    # world generation for fastsim (pure in-memory)
+    worldgen_config_relpath: str = "configs/worldgen/worldgen_run.yaml"
+    worldgen_seed_offset: int = 0
+    tree_radius_mean: float = 0.25
+    tree_radius_std: float = 0.05
+    tree_radius_min: float = 0.10
+    tree_radius_max: float = 0.60
+
+    # start / goal sampling
+    start_goal_clearance: float = 1.0
+    min_start_goal_distance: float = 8.0
+    spawn_max_attempts: int = 500
+
 class ForestNavEnv(gym.Env):
     
     def __init__(self, params: SimParams, render_mode: Optional[str] = None):
@@ -52,14 +67,14 @@ class ForestNavEnv(gym.Env):
         # I can change forward speed to vx, vy normalized (+1 box size)
         obs_dim = self.p.lidar_num_beams + 6
         self.observation_space = spaces.Box(
-            low = -1.0, high = 1.0, shape=(obs_dim), dtype=np.float32
+            low = -1.0, high = 1.0, shape=(obs_dim,), dtype=np.float32
         )
 
         # Action space: a[0] = forward speed command, a[1] = yaw rate command, a[2] = vertical speed command
         # all 3 normalized in their respective v max. E.g. v = a[0] * v_max
         # SAC in SB3 is built for continuous Box actions
         self.action_space = spaces.Box(
-            low = -1.0, high = 1.0, shape = (3), dtype = np.float32
+            low = -1.0, high = 1.0, shape = (3,), dtype = np.float32
         )
 
         self._t = 0.0
@@ -77,6 +92,15 @@ class ForestNavEnv(gym.Env):
 
         self.trees = None # list/array of cylinders (x, y, radius)
         self._prev_dist: Optional[float] = None # last distance, can use to calculate delta
+        self._world_half_extent = float(self.p.world_radius)
+        self._last_worldgen_seed: Optional[int] = None
+
+    @staticmethod
+    def _project_root() -> Path:
+        return Path(__file__).resolve().parents[4]
+
+    def _worldgen_config_path(self) -> Path:
+        return self._project_root() / self.p.worldgen_config_relpath
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         
@@ -87,7 +111,7 @@ class ForestNavEnv(gym.Env):
 
         # Sample world, start, goal
         self.trees = self._sample_forest()
-        self.pos, self.yaw = self._sample_start_pose() # do I really need that?
+        self.pos, self.yaw = self._sample_start_pose()
         self.goal = self._sample_goal_pose()
         self.z_target = np.float32(self.p.default_z_target)
 
@@ -173,7 +197,7 @@ class ForestNavEnv(gym.Env):
 
     def _pack_obs(self, lidar: np.ndarray, dist: float, v: float, wz: float) -> np.ndarray:
         # normalize lidar
-        lidar_n = np.clip(lidar / self.p.lidar_range_max, 0.0, 1.0). astype(np.float32) # not sure where that'd need clipping but safe
+        lidar_n = np.clip(lidar / self.p.lidar_range_max, 0.0, 1.0).astype(np.float32)
 
         # goal direction in body frame
         dx = float(self.goal[0] - self.pos[0])
@@ -181,7 +205,7 @@ class ForestNavEnv(gym.Env):
         theta = np.arctan2(dy, dx) - float(self.yaw)
         c, s = np.cos(theta), np.sin(theta)
 
-        dist_n = np.clip(dist / (2.0 * self.p.world_radius), 0.0, 1.0)
+        dist_n = np.clip(dist / (2.0 * self._world_half_extent), 0.0, 1.0)
         v_n = np.clip(v / self.p.v_max, -1.0, 1.0)
         wz_n = np.clip(wz / self.p.wz_max, -1.0, 1.0)
         z_err = np.clip((float(self.z_target) - float(self.pos[2])) / self.p.z_error_scale, -1.0, 1.0)
@@ -200,6 +224,8 @@ class ForestNavEnv(gym.Env):
         info = {
             "dist_to_goal": float(self._dist_to_goal()),
             "min_range": float(np.min(self._lidar_scan())),
+            "tree_count": int(0 if self.trees is None else len(self.trees)),
+            "worldgen_seed": int(self._last_worldgen_seed) if self._last_worldgen_seed is not None else None,
         }
         info.update(kwargs)
         return info
@@ -287,13 +313,73 @@ class ForestNavEnv(gym.Env):
         return np.full((self.p.lidar_num_beams,), self.p.lidar_range_max, dtype=np.float32)
     
     def _sample_forest(self):
-        return np.zeros((0,3), dtype=np.float32)
+        generate_positions_from_config = None
+        try:
+            module = importlib.import_module("worldgen.forest_worldgen.generate_world")
+            generate_positions_from_config = getattr(module, "generate_positions_from_config")
+        except (ImportError, AttributeError):
+            module = importlib.import_module("forest_worldgen.generate_world")
+            generate_positions_from_config = getattr(module, "generate_positions_from_config")
+
+        config_path = self._worldgen_config_path()
+        if not config_path.exists():
+            raise FileNotFoundError(f"worldgen config not found: {config_path}")
+
+        episode_seed = int(self.np_random.integers(0, np.iinfo(np.int32).max))
+        episode_seed += int(self.p.worldgen_seed_offset)
+        self._last_worldgen_seed = episode_seed
+
+        positions_xy, world_config, _ = generate_positions_from_config(
+            str(config_path),
+            seed=episode_seed,
+        )
+
+        area_size = float(world_config['generation']['area_size'])
+        self._world_half_extent = area_size / 2.0
+
+        points_xy = np.asarray(positions_xy, dtype=np.float32)
+        if points_xy.size == 0:
+            return np.zeros((0, 3), dtype=np.float32)
+
+        radii = self.np_random.normal(
+            loc=self.p.tree_radius_mean,
+            scale=max(self.p.tree_radius_std, 1e-6),
+            size=(points_xy.shape[0],),
+        ).astype(np.float32)
+        radii = np.clip(radii, self.p.tree_radius_min, self.p.tree_radius_max)
+
+        return np.column_stack([points_xy, radii]).astype(np.float32)
+
+    def _point_clear_of_trees(self, x: float, y: float, clearance: float) -> bool:
+        if self.trees is None or len(self.trees) == 0:
+            return True
+        dxy = self.trees[:, :2] - np.array([x, y], dtype=np.float32)
+        d = np.linalg.norm(dxy, axis=1)
+        needed = self.trees[:, 2] + clearance
+        return bool(np.all(d >= needed))
+
+    def _sample_free_xy(self, clearance: float) -> np.ndarray:
+        for _ in range(self.p.spawn_max_attempts):
+            x = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
+            y = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
+            if self._point_clear_of_trees(x, y, clearance):
+                return np.array([x, y], dtype=np.float32)
+
+        return np.array([0.0, 0.0], dtype=np.float32)
     
     def _sample_start_pose(self):
-        return np.array([0.0, 0.0, 2.0], dtype=np.float32), np.float32(0.0)
+        start_xy = self._sample_free_xy(clearance=self.p.start_goal_clearance)
+        yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
+        return np.array([start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32), yaw
     
     def _sample_goal_pose(self):
-        return np.array([10.0, 0.0, 2.0], dtype=np.float32)
+        for _ in range(self.p.spawn_max_attempts):
+            goal_xy = self._sample_free_xy(clearance=self.p.start_goal_clearance)
+            if np.linalg.norm(goal_xy - self.pos[:2]) >= self.p.min_start_goal_distance:
+                return np.array([goal_xy[0], goal_xy[1], self.p.default_z_target], dtype=np.float32)
+
+        fallback = np.array([self._world_half_extent * 0.5, 0.0], dtype=np.float32)
+        return np.array([fallback[0], fallback[1], self.p.default_z_target], dtype=np.float32)
     
 if __name__ == "__main__":
     params = SimParams()
