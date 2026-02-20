@@ -24,7 +24,7 @@ Generate a randomized forest world without launching Gazebo.
 
 **Usage:**
 ```bash
-./scripts/generate_world.sh [config_file] [--seed SEED]
+./scripts/worldgen/generate_world.sh [config_file] [--seed SEED]
 ```
 
 **Arguments:**
@@ -40,7 +40,7 @@ Generate a randomized forest world without launching Gazebo.
 
 **Example:**
 ```bash
-./scripts/generate_world.sh --seed 42
+./scripts/worldgen/generate_world.sh --seed 42
 ```
 
 ---
@@ -51,7 +51,7 @@ Generate a world and immediately launch it in Gazebo for visualization.
 
 **Usage:**
 ```bash
-./scripts/generate_world_and_run.sh [config_file] [--seed SEED]
+./scripts/worldgen/generate_world_and_run.sh [config_file] [--seed SEED]
 ```
 
 **Arguments:**
@@ -59,7 +59,7 @@ Generate a world and immediately launch it in Gazebo for visualization.
 
 **Example:**
 ```bash
-./scripts/generate_world_and_run.sh --seed 123
+./scripts/worldgen/generate_world_and_run.sh --seed 123
 ```
 
 ---
@@ -70,7 +70,7 @@ Spawn a UAV at an edge location in a world that's already running in Gazebo.
 
 **Usage:**
 ```bash
-./scripts/spawn_uav.sh <world_sdf_path> [--index INDEX] [--margin MARGIN] [--height HEIGHT]
+./scripts/worldgen/spawn_uav.sh <world_sdf_path> [--index INDEX] [--margin MARGIN] [--height HEIGHT]
 ```
 
 **Arguments:**
@@ -85,7 +85,7 @@ Spawn a UAV at an edge location in a world that's already running in Gazebo.
 gz sim worldgen/outputs/runs/2026-02-11_120000_seed0042/world.sdf &
 
 # Then spawn UAV:
-./scripts/spawn_uav.sh worldgen/outputs/runs/2026-02-11_120000_seed0042/world.sdf --index 0
+./scripts/worldgen/spawn_uav.sh worldgen/outputs/runs/2026-02-11_120000_seed0042/world.sdf --index 0
 ```
 
 **Note:** Requires Gazebo to be already running with the specified world loaded.
@@ -98,7 +98,7 @@ Generate world, launch Gazebo, and spawn UAV - all in one step.
 
 **Usage:**
 ```bash
-./scripts/generate_world_with_uav.sh [config_file] [--seed SEED] [--index INDEX] [--margin MARGIN] [--height HEIGHT]
+./scripts/worldgen/generate_world_with_uav.sh [config_file] [--seed SEED] [--index INDEX] [--margin MARGIN] [--height HEIGHT]
 ```
 
 **Arguments:**
@@ -110,7 +110,7 @@ Generate world, launch Gazebo, and spawn UAV - all in one step.
 
 **Example:**
 ```bash
-./scripts/generate_world_with_uav.sh --seed 42 --index 2 --height 3.0
+./scripts/worldgen/generate_world_with_uav.sh --seed 42 --index 2 --height 3.0
 ```
 
 **What it does:**
@@ -139,12 +139,12 @@ The world is a square spanning `[-K/2, K/2]²` where `K` is the `area_size` from
 
 ### 1. Generate and visualize a world (no UAV)
 ```bash
-./scripts/generate_world_and_run.sh --seed 42
+./scripts/worldgen/generate_world_and_run.sh --seed 42
 ```
 
 ### 2. Generate world with UAV at northwest corner
 ```bash
-./scripts/generate_world_with_uav.sh --seed 42 --index 0
+./scripts/worldgen/generate_world_with_uav.sh --seed 42 --index 0
 ```
 
 ### 3. Add UAV to existing world
@@ -153,12 +153,12 @@ The world is a square spanning `[-K/2, K/2]²` where `K` is the `area_size` from
 gz sim worldgen/outputs/latest/world.sdf &
 
 # Then spawn UAV at southeast corner
-./scripts/spawn_uav.sh worldgen/outputs/latest/world.sdf --index 2
+./scripts/worldgen/spawn_uav.sh worldgen/outputs/latest/world.sdf --index 2
 ```
 
 ### 4. Just generate a world (for later use)
 ```bash
-./scripts/generate_world.sh --seed 123
+./scripts/worldgen/generate_world.sh --seed 123
 # Output saved to: worldgen/outputs/runs/2026-02-11_HHMMSS_seed0123/
 # Latest mirror: worldgen/outputs/latest/
 ```

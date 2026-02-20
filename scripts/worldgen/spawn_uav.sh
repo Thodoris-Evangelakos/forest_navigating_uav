@@ -14,7 +14,7 @@
 #   - height: 2.0 m (altitude above ground)
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 
 if [ $# -lt 1 ]; then
     echo "Usage: $0 <world_sdf_path> [--index INDEX] [--margin MARGIN] [--height HEIGHT]"

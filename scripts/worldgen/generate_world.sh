@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Script to generate a random forest world
-# Usage: ./gen_world.sh [config_file] [--seed SEED]
+# Usage: ./generate_world.sh [config_file] [--seed SEED]
 #
 # The config can be either:
 #   - a worldgen_run.yaml  (references world + layout configs)
@@ -10,7 +10,7 @@
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-PROJECT_ROOT="$( cd "$SCRIPT_DIR/.." && pwd )"
+PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
 CONFIG_FILE="${1:-$PROJECT_ROOT/configs/worldgen/worldgen_run.yaml}"
 
 if [ ! -f "$CONFIG_FILE" ]; then

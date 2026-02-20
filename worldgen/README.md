@@ -45,26 +45,26 @@ worldgen/
 
 Generate a world using the default configuration:
 ```bash
-./scripts/gen_world.sh
+./scripts/worldgen/generate_world.sh
 ```
 
 ### With Seed (Reproducible)
 
 Generate with a specific random seed for reproducibility:
 ```bash
-./scripts/gen_world.sh configs/worldgen/worldgen_run.yaml --seed 42
+./scripts/worldgen/generate_world.sh configs/worldgen/worldgen_run.yaml --seed 42
 ```
 
 ### Test in Gazebo
 
 Generate and immediately launch in Gazebo:
 ```bash
-./scripts/gen_world_test.sh
+./scripts/worldgen/generate_world_and_run.sh
 ```
 
 With seed:
 ```bash
-./scripts/gen_world_test.sh configs/worldgen/worldgen_run.yaml --seed 123
+./scripts/worldgen/generate_world_and_run.sh configs/worldgen/worldgen_run.yaml --seed 123
 ```
 
 ### Python Module
@@ -134,14 +134,14 @@ Outputs go to `worldgen/outputs/latest/` and optionally to timestamped run direc
 
 ```bash
 # Default mixed zones layout
-./scripts/gen_world.sh
+./scripts/worldgen/generate_world.sh
 
 # Legacy single-zone (backward compatible)
-./scripts/gen_world.sh configs/worldgen/world.default.yaml
+./scripts/worldgen/generate_world.sh configs/worldgen/world.default.yaml
 
 # Reproducible generation
-./scripts/gen_world.sh configs/worldgen/worldgen_run.yaml --seed 42
+./scripts/worldgen/generate_world.sh configs/worldgen/worldgen_run.yaml --seed 42
 
 # Generate and test
-./scripts/gen_world_test.sh configs/worldgen/worldgen_run.yaml --seed 999
+./scripts/worldgen/generate_world_and_run.sh configs/worldgen/worldgen_run.yaml --seed 999
 ```
