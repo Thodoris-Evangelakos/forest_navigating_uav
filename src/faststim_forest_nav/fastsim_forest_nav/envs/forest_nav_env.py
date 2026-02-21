@@ -102,12 +102,78 @@ class ForestNavEnv(gym.Env):
         self._world_half_extent = float(self.p.world_radius)
         self._last_worldgen_seed: Optional[int] = None
 
+        # full 360° lidar beam geometry (relative to body x-axis)
+        self._beam_angle_start = -np.pi
+        self._beam_angle_step = (2.0 * np.pi) / float(self.p.lidar_num_beams)
+        rel_angles = self._beam_angle_start + self._beam_angle_step * np.arange(
+            self.p.lidar_num_beams,
+            dtype=np.float64,
+        )
+        self._beam_rel_cos = np.cos(rel_angles)
+        self._beam_rel_sin = np.sin(rel_angles)
+
+        # spatial grid for fast nearest-tree queries
+        self._tree_grid: Optional[dict] = None
+        self._tree_grid_cell_size = float(self.p.lidar_range_max) / 2.0
+
     @staticmethod
     def _project_root() -> Path:
         return Path(__file__).resolve().parents[4]
 
     def _worldgen_config_path(self) -> Path:
         return self._project_root() / self.p.worldgen_config_relpath
+
+    def _build_tree_grid(self):
+        """Build spatial hash grid for fast nearest-tree queries."""
+        if self.trees is None or len(self.trees) == 0:
+            self._tree_grid = {}
+            return
+
+        cell_size = self._tree_grid_cell_size
+        grid = {}
+        for idx, tree in enumerate(self.trees):
+            x, y, r = float(tree[0]), float(tree[1]), float(tree[2])
+            # insert into all cells overlapped by this tree's bounding box
+            min_cell_x = int(np.floor((x - r) / cell_size))
+            max_cell_x = int(np.floor((x + r) / cell_size))
+            min_cell_y = int(np.floor((y - r) / cell_size))
+            max_cell_y = int(np.floor((y + r) / cell_size))
+            for cx in range(min_cell_x, max_cell_x + 1):
+                for cy in range(min_cell_y, max_cell_y + 1):
+                    key = (cx, cy)
+                    if key not in grid:
+                        grid[key] = []
+                    grid[key].append(idx)
+        self._tree_grid = grid
+
+    def _query_nearby_trees(self, x: float, y: float, radius: float) -> np.ndarray:
+        """Return indices of trees within 'radius' of (x, y) using spatial grid."""
+        if self._tree_grid is None or len(self._tree_grid) == 0 or self.trees is None:
+            return np.array([], dtype=np.int64)
+
+        cell_size = self._tree_grid_cell_size
+        min_cx = int(np.floor((x - radius) / cell_size))
+        max_cx = int(np.floor((x + radius) / cell_size))
+        min_cy = int(np.floor((y - radius) / cell_size))
+        max_cy = int(np.floor((y + radius) / cell_size))
+
+        candidates = set()
+        for cx in range(min_cx, max_cx + 1):
+            for cy in range(min_cy, max_cy + 1):
+                if (cx, cy) in self._tree_grid:
+                    candidates.update(self._tree_grid[(cx, cy)])
+
+        if not candidates:
+            return np.array([], dtype=np.int64)
+
+        candidate_indices = np.array(list(candidates), dtype=np.int64)
+        tree_subset = self.trees[candidate_indices]
+        dx = tree_subset[:, 0] - x
+        dy = tree_subset[:, 1] - y
+        dist = np.sqrt(dx * dx + dy * dy)
+        reach = dist + tree_subset[:, 2]
+        in_range = reach >= 0.0  # always true but kept for clarity
+        return candidate_indices[in_range]
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         
@@ -118,6 +184,7 @@ class ForestNavEnv(gym.Env):
 
         # Sample world, start, goal
         self.trees = self._sample_forest()
+        self._build_tree_grid()
         self.pos, self.yaw = self._sample_start_pose()
         self.goal = self._sample_goal_pose()
         self.z_target = np.float32(self.p.default_z_target)
@@ -263,7 +330,7 @@ class ForestNavEnv(gym.Env):
         safe_vz = float(vz)
         shield_active = 0
 
-        # horizontal tree avoidance
+        # horizontal tree avoidance (query nearby trees only)
         if self.trees is not None and len(self.trees) > 0:
             vel_dir = np.array(
                 [np.cos(float(self.yaw)), np.sin(float(self.yaw))],
@@ -271,8 +338,12 @@ class ForestNavEnv(gym.Env):
             )
             pos_xy = self.pos[:2].astype(np.float64)
 
-            # FIXME checking all trees every step is not super efficient, but should be fine for now with small numbers. Can optimize later with some spatial data structure if needed
-            for tree in self.trees:
+            # max distance UAV can travel this step plus safety bubble
+            lookahead = abs(safe_v) * self.p.dt + self.p.r_safe + 2.0
+            nearby_idx = self._query_nearby_trees(float(self.pos[0]), float(self.pos[1]), lookahead)
+
+            for idx in nearby_idx:
+                tree = self.trees[idx]
                 t_xy = tree[:2].astype(np.float64)
                 t_r = float(tree[2])
 
@@ -322,12 +393,96 @@ class ForestNavEnv(gym.Env):
         self.pos[2] = np.float32(float(self.pos[2]) + vz * self.p.dt)
 
     def _lidar_scan(self) -> np.ndarray:
-        # simulate lidar scan by raycasting against the cylinders
-        # return shape (N,) float32 with values in [0, range_max] or range_max if no hit
-        return np.full((self.p.lidar_num_beams,), self.p.lidar_range_max, dtype=np.float32)
+        # raycast against circular tree cross-sections in xy plane
+        n_beams = self.p.lidar_num_beams
+        max_range = float(self.p.lidar_range_max)
+        ranges = np.full((n_beams,), max_range, dtype=np.float64)
+
+        if self.trees is None or len(self.trees) == 0:
+            return ranges.astype(np.float32)
+
+        px = float(self.pos[0])
+        py = float(self.pos[1])
+        yaw = float(self.yaw)
+
+        cos_yaw = float(np.cos(yaw))
+        sin_yaw = float(np.sin(yaw))
+        dir_x = cos_yaw * self._beam_rel_cos - sin_yaw * self._beam_rel_sin
+        dir_y = sin_yaw * self._beam_rel_cos + cos_yaw * self._beam_rel_sin
+
+        # query nearby trees only
+        nearby_idx = self._query_nearby_trees(px, py, max_range)
+
+        for idx in nearby_idx:
+            tree = self.trees[idx]
+            tx = float(tree[0])
+            ty = float(tree[1])
+            radius = float(tree[2])
+
+            dx = tx - px
+            dy = ty - py
+            d2 = dx * dx + dy * dy
+            r2 = radius * radius
+
+            # If UAV center is inside a trunk, every beam collides at zero range
+            if d2 <= r2:
+                return np.zeros((n_beams,), dtype=np.float32)
+
+            center_dist = float(np.sqrt(d2))
+            if center_dist - radius > max_range:
+                continue
+
+            tree_rel = float(np.arctan2(dy, dx) - yaw)
+            tree_rel = float(np.arctan2(np.sin(tree_rel), np.cos(tree_rel)))
+            half_span = float(np.arcsin(min(0.999999, radius / center_dist)))
+
+            center_float = (tree_rel - self._beam_angle_start) / self._beam_angle_step
+            center_idx = int(np.round(center_float)) % n_beams
+            half_beams = int(np.ceil(half_span / self._beam_angle_step))
+
+            if half_beams >= n_beams // 2:
+                candidate_idx = np.arange(n_beams, dtype=np.int64)
+            else:
+                offsets = np.arange(-half_beams, half_beams + 1, dtype=np.int64)
+                candidate_idx = (center_idx + offsets) % n_beams
+
+            cdx = dir_x[candidate_idx]
+            cdy = dir_y[candidate_idx]
+
+            # Ray-circle intersection from origin p + t * d, with |d|=1 and t>=0
+            proj = dx * cdx + dy * cdy
+            forward = proj > 0.0
+            if not np.any(forward):
+                continue
+
+            perp2 = d2 - proj * proj
+            hit = forward & (perp2 <= r2)
+            if not np.any(hit):
+                continue
+
+            proj_hit = proj[hit]
+            perp2_hit = perp2[hit]
+            chord = np.sqrt(np.maximum(0.0, r2 - perp2_hit))
+            t_near = np.maximum(0.0, proj_hit - chord)
+
+            hit_idx = candidate_idx[hit]
+            ranges[hit_idx] = np.minimum(ranges[hit_idx], t_near)
+
+        np.clip(ranges, 0.0, max_range, out=ranges)
+        return ranges.astype(np.float32)
     
     def _sample_forest(self):
+        """ Samples a forest layout using the pure memory API of the worldgen code
+
+        Raises:
+            FileNotFoundError: Take a wild guess
+
+        Returns:
+            np.array: Array of shape (N, 3) with x, y coordinates and radius of each tree
+        """
         generate_positions_from_config = None
+        # AI generated, surely I can figure a way to do this better?
+        # it was made by codex 5.3 explains why it sucks xd
         try:
             module = importlib.import_module("worldgen.forest_worldgen.generate_world")
             generate_positions_from_config = getattr(module, "generate_positions_from_config")
@@ -373,6 +528,18 @@ class ForestNavEnv(gym.Env):
         return bool(np.all(d >= needed))
 
     def _sample_free_xy(self, clearance: float) -> np.ndarray:
+        """ Sampling the world for a viable (clear of trees) start or goal position
+            Obviously very junky approach, but should be fine for reasonable tree densities
+            If it becomes an issue I can use some data structure or just setup the worldgen to output some pre-sampled free points
+
+        Args:
+            clearance (float): Minimum distance from any tree that the sampled point must be
+
+        Returns:
+            np.ndarray: Array of shape (2,) with x, y coordinates of the sampled point. If no valid point is found after max attempts
+            returns (0, 0) which is likely to be in the middle of the world and hopefully not inside a tree (terrible idea I think, but saves us from looping forever)
+            I should probably raise an exception
+        """
         for _ in range(self.p.spawn_max_attempts):
             x = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
             y = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
@@ -382,11 +549,22 @@ class ForestNavEnv(gym.Env):
         return np.array([0.0, 0.0], dtype=np.float32)
     
     def _sample_start_pose(self):
+        """ Sample a start pose (x, y, z, yaw) that is clear of trees and respects the clearance requirement
+
+        Returns:
+            np.array: Array of shape (3,) with x, y, z coordinates of the start position, and a separate float for yaw
+            The z coordinate is set to the default_z_target for now, but I can change that later if I want to add some verticality to the start/goal sampling
+        """
         start_xy = self._sample_free_xy(clearance=self.p.start_goal_clearance)
         yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
         return np.array([start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32), yaw
     
     def _sample_goal_pose(self):
+        """ Same idea as sample start pose, find a free (x, y) goal position
+
+        Returns:
+            np.array: Array of shape (3,) with x, y, z coordinates of the goal position
+        """
         for _ in range(self.p.spawn_max_attempts):
             goal_xy = self._sample_free_xy(clearance=self.p.start_goal_clearance)
             if np.linalg.norm(goal_xy - self.pos[:2]) >= self.p.min_start_goal_distance:
