@@ -11,6 +11,8 @@ from stable_baselines3.common.env_checker import check_env
 
 @dataclass
 class SimParams:
+    """Parameters for the simulation, easier to maintain and tweak
+    """
     dt: float = 0.1
     lidar_num_beams: int = 180
     lidar_range_max: float = 30.0
@@ -55,7 +57,12 @@ class SimParams:
     spawn_max_attempts: int = 500
 
 class ForestNavEnv(gym.Env):
-    
+    """ Environment as expected by SBR3 with a continous action space of (v, wz, vz)
+    and an observation space of (lidar ranges..., cos(theta_goal), sin(theta_goal), forward_speed, yaw_rate, height_error)
+
+    Args:
+        gym (_type_): parent gym class, inheriting from that
+    """
     def __init__(self, params: SimParams, render_mode: Optional[str] = None):
         super().__init__()
         self.p = params
@@ -188,14 +195,21 @@ class ForestNavEnv(gym.Env):
         return obs, float(reward), terminated, truncated, info
     
     def render(self):
+        """ Returns a bunch of info for the time being until I build an actual visualizer (Gazebo?)
+
+        Returns:
+            string: string with time, position, yaw, goal, velocity
+        """
         return f"t={self._t:2f} pos = {self.pos} yaw = {float(self.yaw):.2f} goal = {self.goal} v = {float(self.v):.2f}"
     
     def close(self):
+        """ Any cleanup if needed, not really necessary for this simple env but good to have the structure in place for future extensions
+        """
         pass
 
-    # ~~~ HELPER FUNCTIONS DEFINED BELOW ~~~
+    ### HELPER FUNCTIONS ###
 
-    def _pack_obs(self, lidar: np.ndarray, dist: float, v: float, wz: float) -> np.ndarray:
+    def _pack_obs(self, lidar: np.ndarray, dist: float, v: np.float32, wz: np.float32) -> np.ndarray:
         # normalize lidar
         lidar_n = np.clip(lidar / self.p.lidar_range_max, 0.0, 1.0).astype(np.float32)
 
@@ -298,9 +312,9 @@ class ForestNavEnv(gym.Env):
         delta_norm = abs(v - safe_v) + abs(wz - safe_wz) + abs(vz - safe_vz)
         shield_delta = delta_norm / cmd_norm if cmd_norm > 1e-6 else 0.0
 
-        return safe_v, safe_wz, safe_vz, int(shield_active), float(shield_delta)
+        return np.float32(safe_v), np.float32(safe_wz), np.float32(safe_vz), int(shield_active), float(shield_delta)
 
-    def _integrate(self, v: float, wz: float, vz: float):
+    def _integrate(self, v: np.float32, wz: np.float32, vz: np.float32):
         # simple kinematics
         self.yaw = np.float32(float(self.yaw) + wz * self.p.dt)
         self.pos[0] = np.float32(float(self.pos[0]) + v * np.cos(float(self.yaw)) * self.p.dt)

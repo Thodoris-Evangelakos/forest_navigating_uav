@@ -35,6 +35,8 @@ def _load_world_and_layout_configs(config_file):
     config_file = os.path.abspath(config_file)
 
     script_dir = os.path.dirname(os.path.abspath(__file__))
+    # hella junky, I should use a proper structure
+    # HACK: assume project root is two levels up from this script
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
 
     run_config = load_config(config_file)
@@ -55,6 +57,19 @@ def _load_world_and_layout_configs(config_file):
 
 
 def generate_positions_from_config(config_file, seed=None):
+    """Generate world positions in-memory without file export (pure memory API)
+
+    Args:
+        config_file (string): Path to worldgen run config
+        seed (int, optional): Seed to be used. Defaults to None.
+
+    Raises:
+        ValueError: Raised if an unknown layout type is specified in the layout config
+
+    Returns:
+        tuple[list[tuple[float, float]], dict, dict | None]: Generated positions, world config, and optional layout config.
+    """
+
     """Generate world positions in-memory without exporting files.
 
     Parameters
@@ -85,12 +100,8 @@ def generate_positions_from_config(config_file, seed=None):
 
 
 def main():
-    """
-    Driver code
-    
-    Accepts either:
-      - a worldgen_run.yaml (has 'include' key referencing world + layout)
-      - a legacy world.default.yaml (single-file mode, no layout)
+    """Driver code for world generation
+        Accepts either a worldgen_run.yaml (with 'include' key referencing world + layout) or a legacy world.default.yaml (single-file mode, no layout)
     """
     if len(sys.argv) < 2:
         print("Usage: python3 -m forest_worldgen.generate_world <run_config | world_config> [--seed SEED]")
@@ -106,6 +117,7 @@ def main():
         print(f"Using random seed: {seed}")
 
     # Determine project root and worldgen root
+    # HACK: assume project root is two levels up from this script, and worldgen root is one level up
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
     worldgen_root = os.path.abspath(os.path.join(script_dir, '..'))
@@ -122,7 +134,7 @@ def main():
         else:
             print("(legacy single-file config)")
 
-        # Load templates
+        # load templates
         world_template = load_template('world_base.sdf', worldgen_root)
         include_template = load_template('include.sdf', worldgen_root)
 
@@ -135,7 +147,7 @@ def main():
 
         print(f"total objects : {len(positions)}")
 
-        # --- Validation statistics (logged, not enforced) ---
+        # validation statistics (logged, not enforced)
         area_size = world_config['generation']['area_size']
         stats = compute_validation_stats(positions, area_size)
         R = stats['clark_evans_R']
@@ -143,8 +155,8 @@ def main():
         L_s = stats['L_small_r_mean']
         print(f"validation    : R={R}  g_small={g_s}  L_small={L_s}")
 
-        # --- Prepare output directories ---
-        # Always save to timestamped run directory and mirror to outputs/latest
+        # prepare output directories
+        # always save to timestamped run directory and mirror to outputs/latest
         timestamp = datetime.now().strftime('%Y-%m-%d_%H%M%S')
         if seed is not None:
             run_name = f'{timestamp}_seed{seed:04d}'
