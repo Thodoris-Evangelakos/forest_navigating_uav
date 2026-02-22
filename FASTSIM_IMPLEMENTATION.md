@@ -75,7 +75,7 @@ spawn_max_attempts: int = 500
    - Added `_local_random_seed()` context manager for determinism
    - Refactored `main()` to use new API while preserving CLI behavior
 
-2. **src/faststim_forest_nav/fastsim_forest_nav/envs/forest_nav_env.py**
+2. **src/fastsim_forest_nav/fastsim_forest_nav/envs/forest_nav_env.py**
    - Extended `SimParams` with worldgen + radius + spawn controls
    - Implemented `_sample_forest()` with worldgen integration
    - Implemented `_lidar_scan()` with vectorized raycasting

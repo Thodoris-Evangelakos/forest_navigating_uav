@@ -2,7 +2,7 @@
 
 This workspace contains three main components:
 
-- `src/faststim_forest_nav`: Fast in-memory Gymnasium environment (`ForestNavEnv`)
+- `src/fastsim_forest_nav`: Fast in-memory Gymnasium environment (`ForestNavEnv`)
 - `src/forest_nav_rl`: RL training/evaluation package (SAC tooling)
 - `worldgen/forest_worldgen`: Forest world generation utilities and exporters
 

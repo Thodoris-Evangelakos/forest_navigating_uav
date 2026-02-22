@@ -17,7 +17,7 @@ help:
 setup:
 	python3 -m venv .venv
 	$(PIP) install --upgrade pip
-	$(PIP) install -e src/faststim_forest_nav -e src/forest_nav_rl
+	$(PIP) install -e src/fastsim_forest_nav -e src/forest_nav_rl
 	$(PIP) install pyyaml matplotlib
 	@echo "✓ Setup complete. Use '$(PYTHON)' or activate .venv"
 
