@@ -3,6 +3,7 @@ from dataclasses import dataclass
 from typing import Any, Optional, Tuple
 from pathlib import Path
 import importlib
+import sys
 
 import numpy as np
 import gymnasium as gym
@@ -61,7 +62,7 @@ class ForestNavEnv(gym.Env):
     and an observation space of (lidar ranges..., cos(theta_goal), sin(theta_goal), forward_speed, yaw_rate, height_error)
 
     Args:
-        gym (_type_): parent gym class, inheriting from that
+        gym (Env): parent gym class, inheriting from that
     """
     def __init__(self, params: SimParams, render_mode: Optional[str] = None):
         super().__init__()
@@ -102,7 +103,7 @@ class ForestNavEnv(gym.Env):
         self._world_half_extent = float(self.p.world_radius)
         self._last_worldgen_seed: Optional[int] = None
 
-        # full 360° lidar beam geometry (relative to body x-axis)
+        # full 360 deg lidar beam geometry (relative to body x-axis)
         self._beam_angle_start = -np.pi
         self._beam_angle_step = (2.0 * np.pi) / float(self.p.lidar_num_beams)
         rel_angles = self._beam_angle_start + self._beam_angle_step * np.arange(
@@ -229,7 +230,7 @@ class ForestNavEnv(gym.Env):
         collision = int(min_range < self.p.collision_threshold)
         success = int(dist < self.p.goal_tolerance)
 
-        # I should hyperparameterize all weights probably, this looks hella junky
+        # Weights saved in the dataclass
         reward = 0.0
         reward += self.p.reward_progress_scale * d_progress # encourage progress towards goal
         reward += self.p.reward_speed_scale * (safe_v / self.p.v_max) # encourage faster speeds
@@ -480,15 +481,45 @@ class ForestNavEnv(gym.Env):
         Returns:
             np.array: Array of shape (N, 3) with x, y coordinates and radius of each tree
         """
-        generate_positions_from_config = None
-        # AI generated, surely I can figure a way to do this better?
-        # it was made by codex 5.3 explains why it sucks xd
-        try:
-            module = importlib.import_module("worldgen.forest_worldgen.generate_world")
-            generate_positions_from_config = getattr(module, "generate_positions_from_config")
-        except (ImportError, AttributeError):
-            module = importlib.import_module("forest_worldgen.generate_world")
-            generate_positions_from_config = getattr(module, "generate_positions_from_config")
+        # Try package import first; if this file is run directly, ensure project paths
+        # are available so worldgen can still be imported.
+        module = None
+        for module_name in (
+            "worldgen.forest_worldgen.generate_world",
+            "forest_worldgen.generate_world",
+        ):
+            try:
+                module = importlib.import_module(module_name)
+                break
+            except ImportError:
+                continue
+
+        if module is None:
+            project_root = self._project_root()
+            candidate_paths = (project_root, project_root / "worldgen")
+            for path in candidate_paths:
+                path_str = str(path)
+                if path_str not in sys.path:
+                    sys.path.insert(0, path_str)
+
+            for module_name in (
+                "worldgen.forest_worldgen.generate_world",
+                "forest_worldgen.generate_world",
+            ):
+                try:
+                    module = importlib.import_module(module_name)
+                    break
+                except ImportError:
+                    continue
+
+        if module is None:
+            raise ImportError(
+                "Could not import world generator module. Tried "
+                "'worldgen.forest_worldgen.generate_world' and "
+                "'forest_worldgen.generate_world'."
+            )
+
+        generate_positions_from_config = getattr(module, "generate_positions_from_config")
 
         config_path = self._worldgen_config_path()
         if not config_path.exists():
