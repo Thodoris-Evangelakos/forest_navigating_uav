@@ -30,3 +30,4 @@ dist/
 # OS noise
 .DS_Store
 Thumbs.db
+test.py

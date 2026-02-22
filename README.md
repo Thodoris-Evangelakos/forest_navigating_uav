@@ -8,19 +8,25 @@ This workspace contains three main components:
 
 ## Quickstart (Dev Setup)
 
+### Option 1: One-Command Setup (Recommended)
+
 From the repository root:
+
+```bash
+make setup
+```
+
+This creates `.venv` and installs all packages plus dependencies in one shot.
+
+### Option 2: Manual Setup
 
 ```bash
 python3 -m venv .venv
 ./.venv/bin/python -m pip install --upgrade pip
-./.venv/bin/python -m pip install -e src/faststim_forest_nav -e src/forest_nav_rl
+./.venv/bin/python -m pip install -e ".[all]"
 ```
 
-Optional worldgen dependencies:
-
-```bash
-./.venv/bin/python -m pip install pyyaml matplotlib
-```
+This installs the entire workspace (root meta-package + all subpackages) with all extras.
 
 ## Verify Install
 
