@@ -3,6 +3,7 @@ __pycache__/
 notes.txt
 PARTLIST.md
 .venv/
+outputs/runs/*
 
 # Python artifacts
 *.py[cod]

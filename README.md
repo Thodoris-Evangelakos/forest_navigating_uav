@@ -72,4 +72,56 @@ Use `./.venv/bin/python` (or activate `.venv`) to ensure the correct environment
 	./scripts/worldgen/generate_world_with_uav.sh --seed 42 --index 0
 	```
 
+## RL via Make
+
+From repository root (uses `.venv` tools via Makefile):
+
+- Train SAC (default config):
+
+	```bash
+	make rl-train
+	```
+
+- Train SAC with overrides:
+
+	```bash
+	make rl-train RL_CONFIG=configs/training/sac.yaml DEVICE=cuda
+	```
+
+- Launch TensorBoard for runs:
+
+	```bash
+	make rl-tensorboard TB_PORT=6006
+	```
+
+- Generate single-run visualization (latest run by default):
+
+	```bash
+	make rl-visualize
+	```
+
+- Generate single-run visualization for a specific run:
+
+	```bash
+	make rl-visualize RUN=outputs/runs/sac_fastsim_005
+	```
+
+- Generate multi-run comparison report:
+
+	```bash
+	make rl-compare
+	```
+
+- Visualize agent trajectories on forest maps:
+
+	```bash
+	make rl-trajectories MODEL=outputs/runs/sac_fastsim_005/final/sac_final_model.zip
+	```
+
+	With overrides:
+
+	```bash
+	make rl-trajectories MODEL=outputs/runs/sac_fastsim_005/final/sac_final_model.zip NUM_EPISODES=10
+	```
+
 For script details, see `scripts/README.md` and `worldgen/README.md`.

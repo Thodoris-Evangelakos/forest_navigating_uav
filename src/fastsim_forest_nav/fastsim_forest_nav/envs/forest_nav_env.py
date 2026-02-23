@@ -310,6 +310,7 @@ class ForestNavEnv(gym.Env):
             "worldgen_seed": int(self._last_worldgen_seed) if self._last_worldgen_seed is not None else None,
         }
         info.update(kwargs)
+        info["is_success"] = bool(info.get("success", False))
         return info
     
     def _dist_to_goal(self) -> float:

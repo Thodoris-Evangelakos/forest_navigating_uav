@@ -1,0 +1,72 @@
+experiment:
+  name: sac_fastsim
+  runs_dir: outputs/runs
+  seed: 42
+  total_timesteps: 1_000_000
+
+env:
+  env_kwargs:
+    params:
+      dt: 0.1
+      lidar_num_beams: 180
+      lidar_range_max: 30.0
+      v_max: 6.0
+      wz_max: 2.5
+      vz_max: 2.0
+      r_safe: 0.6
+      episode_seconds: 30.0
+      goal_tolerance: 0.5
+      world_radius: 20.0
+      collision_threshold: 0.05
+      default_z_target: 2.0
+      z_error_scale: 5.0
+      reward_progress_scale: 2.0
+      reward_speed_scale: 0.05
+      reward_step_penalty: 0.01
+      reward_proximity_scale: 0.2
+      reward_shield_penalty: 0.02
+      reward_collision_penalty: 5.0
+      reward_success_bonus: 5.0
+      reward_truncation_penalty: 0.0
+      shield_floor_z_min: 0.05
+      worldgen_config_relpath: configs/worldgen/worldgen_run.yaml
+      worldgen_seed_offset: 0
+      tree_radius_mean: 0.25
+      tree_radius_std: 0.05
+      tree_radius_min: 0.10
+      tree_radius_max: 0.60
+      start_goal_clearance: 1.0
+      min_start_goal_distance: 8.0
+      spawn_max_attempts: 500
+
+training:
+  n_envs: 8
+  checkpoint_freq_step: 10000
+  norm:
+    enabled: true
+    norm_obs: true
+    norm_reward: true
+    clip_obs: 10.0
+    clip_reward: 10.0
+
+logging:
+  eval_freq_step: 20000
+  n_eval_episodes: 10
+
+sac:
+  policy: MlpPolicy
+  learning_rate: 0.0003
+  buffer_size: 1000000
+  learning_starts: 10000
+  batch_size: 256
+  tau: 0.005
+  gamma: 0.99
+  train_freq: 1
+  gradient_steps: -1
+  ent_coef: auto
+  target_update_interval: 1
+  verbose: 1
+  policy_kwargs:
+    net_arch: [256, 256]
+
+save_vecnorm: false

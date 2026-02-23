@@ -12,7 +12,14 @@ dependencies = [
 	"numpy>=1.24",
 	"gymnasium>=0.29",
 	"stable-baselines3>=2.2",
+	"PyYAML>=6.0",
+	"matplotlib>=3.7",
 ]
+
+[project.scripts]
+forest-nav-train-sac = "forest_nav_rl.train_sac:main"
+forest-nav-visualize = "forest_nav_rl.visualize_training:main"
+forest-nav-trajectories = "forest_nav_rl.visualize_trajectories:main"
 
 [project.optional-dependencies]
 dev = [
