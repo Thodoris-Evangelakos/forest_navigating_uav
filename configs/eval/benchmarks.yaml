@@ -1,0 +1,8 @@
+benchmarks:
+	- name: fastsim_baseline
+		config: configs/training/sac.yaml
+		backend: fastsim
+	- name: gazebo_transfer
+		config: configs/training/sac_gazebo.yaml
+		backend: gazebo
+

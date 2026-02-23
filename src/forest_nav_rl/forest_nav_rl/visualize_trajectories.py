@@ -13,8 +13,8 @@ from matplotlib.collections import PatchCollection
 from matplotlib.colors import Normalize
 from matplotlib.patches import Circle
 
-from fastsim_forest_nav.envs.forest_nav_env import ForestNavEnv, SimParams
 from fastsim_forest_nav.wrappers import TrajectoryRecorder
+from forest_nav_rl.utils import build_env_ctor_and_kwargs
 from stable_baselines3 import SAC
 
 
@@ -58,23 +58,14 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def load_env_params(config_path: Path | None) -> SimParams:
+def load_env_ctor_and_kwargs(config_path: Path | None):
     if config_path is None or not config_path.exists():
-        return SimParams()
-
-    with config_path.open("r", encoding="utf-8") as handle:
-        cfg = yaml.safe_load(handle)
-
-    env_cfg = cfg.get("env", {})
-    env_kwargs = env_cfg.get("env_kwargs", {})
-    raw_params = env_kwargs.get("params", env_cfg.get("sim_params", env_cfg.get("params", {})))
-
-    if isinstance(raw_params, dict):
-        return SimParams(**raw_params)
-    elif isinstance(raw_params, SimParams):
-        return raw_params
+        cfg: dict[str, dict] = {"env": {"backend": "fastsim", "env_kwargs": {"params": {}}}}
     else:
-        return SimParams()
+        with config_path.open("r", encoding="utf-8") as handle:
+            cfg = yaml.safe_load(handle)
+    env_cfg = cfg.get("env", {"backend": "fastsim", "env_kwargs": {"params": {}}})
+    return build_env_ctor_and_kwargs(env_cfg)
 
 
 def plot_trajectory_map(
@@ -203,11 +194,8 @@ def main() -> None:
     # Load model
     model = SAC.load(args.model)
 
-    # Load environment params
-    params = load_env_params(args.config)
-
-    # Create wrapped environment
-    base_env = ForestNavEnv(params=params)
+    env_ctor, env_kwargs = load_env_ctor_and_kwargs(args.config)
+    base_env = env_ctor(**env_kwargs)
     env = TrajectoryRecorder(base_env)
 
     # Set seed if provided

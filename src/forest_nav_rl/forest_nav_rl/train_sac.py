@@ -13,8 +13,7 @@ from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
 from stable_baselines3.common.vec_env import VecNormalize
 
-# fastsim env
-from fastsim_forest_nav.envs.forest_nav_env import ForestNavEnv, SimParams
+from forest_nav_rl.utils import build_env_ctor_and_kwargs, get_env_backend
 
 
 MONITOR_INFO_KEYS = (
@@ -108,21 +107,10 @@ def make_run_dir(base_dir: str | Path, exp_name: str) -> Path:
     return run_dir
 
 def build_vec_env(env_cfg: dict[str, Any], n_envs: int, seed: int, monitor_dir: str):
-    env_kwargs = dict(env_cfg.get("env_kwargs", {}))
-    raw_params = env_kwargs.get("params")
-
-    if raw_params is None:
-        raw_params = env_cfg.get("sim_params", env_cfg.get("params", {}))
-
-    if isinstance(raw_params, SimParams):
-        env_kwargs["params"] = raw_params
-    elif isinstance(raw_params, dict):
-        env_kwargs["params"] = SimParams(**raw_params)
-    else:
-        env_kwargs["params"] = SimParams()
+    env_ctor, env_kwargs = build_env_ctor_and_kwargs(env_cfg)
 
     venv = make_vec_env(
-        ForestNavEnv,
+        env_ctor,
         n_envs = n_envs,
         seed = seed,
         monitor_dir=monitor_dir,
@@ -157,6 +145,7 @@ def main():
     args = parser.parse_args()
 
     cfg = load_yaml(args.config)
+    backend = get_env_backend(cfg["env"])
 
     exp_name = cfg["experiment"]["name"]
     base_runs_dir = cfg["experiment"]["runs_dir"]
@@ -175,22 +164,18 @@ def main():
     with open(run_dir / "config_used.yaml", "w") as f:
         yaml.dump(cfg, f)
 
-    # quick single env validation, just to avoid headaches
-    env_kwargs = dict(cfg["env"].get("env_kwargs", {}))
-    raw_params = env_kwargs.get("params", cfg["env"].get("sim_params", cfg["env"].get("params", {})))
-    if isinstance(raw_params, SimParams):
-        env_kwargs["params"] = raw_params
-    elif isinstance(raw_params, dict):
-        env_kwargs["params"] = SimParams(**raw_params)
-    else:
-        env_kwargs["params"] = SimParams()
+    env_ctor, env_kwargs = build_env_ctor_and_kwargs(cfg["env"])
 
-    single_env = ForestNavEnv(**env_kwargs)
-    check_env(single_env, warn=True)
-    single_env.close()
+    if bool(cfg["env"].get("check_env", backend != "gazebo")):
+        single_env = env_ctor(**env_kwargs)
+        check_env(single_env, warn=True)
+        single_env.close()
 
     # build vectorized training env
     n_envs = cfg["training"].get("n_envs", 8)
+    if backend == "gazebo" and int(n_envs) != 1:
+        raise ValueError("Gazebo backend currently supports n_envs=1 only")
+
     train_env = build_vec_env(
         env_cfg=cfg["env"],
         n_envs=n_envs,

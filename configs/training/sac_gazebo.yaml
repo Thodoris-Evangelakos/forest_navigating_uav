@@ -1,15 +1,18 @@
 experiment:
-  name: sac_fastsim
+  name: sac_gazebo
   runs_dir: outputs/runs
   seed: 42
-  total_timesteps: 10_000_000
+  total_timesteps: 100000
 
 env:
+  backend: gazebo
+  check_env: false
   env_kwargs:
     params:
       dt: 0.1
       lidar_num_beams: 180
       lidar_range_max: 30.0
+      lidar_min_valid_range: 0.03
       v_max: 6.0
       wz_max: 2.5
       vz_max: 2.0
@@ -29,18 +32,23 @@ env:
       reward_success_bonus: 5.0
       reward_truncation_penalty: 0.0
       shield_floor_z_min: 0.05
-      worldgen_config_relpath: configs/worldgen/worldgen_run.yaml
-      worldgen_seed_offset: 0
-      tree_radius_mean: 0.25
-      tree_radius_std: 0.05
-      tree_radius_min: 0.10
-      tree_radius_max: 0.60
+      shield_front_arc_deg: 70.0
+      shield_ttc_threshold_sec: 1.0
+      odom_topic: /odom
+      scan_topic: /scan
+      cmd_vel_topic: /cmd_vel
+      spin_timeout_sec: 2.0
+      settle_time_sec: 0.05
+      use_sim_reset_service: false
+      reset_service_name: /reset_simulation
+      fixed_goal: [8.0, 0.0, 2.0]
+      randomize_goal_on_reset: true
       start_goal_clearance: 1.0
       min_start_goal_distance: 8.0
       spawn_max_attempts: 500
 
 training:
-  n_envs: 8
+  n_envs: 1
   checkpoint_freq_step: 10000
   norm:
     enabled: true
@@ -52,6 +60,7 @@ training:
 logging:
   eval_freq_step: 20000
   n_eval_episodes: 10
+  metrics_log_freq_step: 1000
 
 sac:
   policy: MlpPolicy

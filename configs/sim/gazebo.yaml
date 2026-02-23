@@ -1,0 +1,44 @@
+env:
+	backend: gazebo
+	check_env: false
+	env_kwargs:
+		params:
+			dt: 0.1
+			lidar_num_beams: 180
+			lidar_range_max: 30.0
+			lidar_min_valid_range: 0.03
+			v_max: 6.0
+			wz_max: 2.5
+			vz_max: 2.0
+			r_safe: 0.6
+			collision_threshold: 0.05
+			episode_seconds: 30.0
+			goal_tolerance: 0.5
+			world_radius: 20.0
+			default_z_target: 2.0
+			z_error_scale: 5.0
+
+			reward_progress_scale: 2.0
+			reward_speed_scale: 0.05
+			reward_step_penalty: 0.01
+			reward_proximity_scale: 0.2
+			reward_shield_penalty: 0.02
+			reward_collision_penalty: 5.0
+			reward_success_bonus: 5.0
+			reward_truncation_penalty: 0.0
+
+			shield_floor_z_min: 0.05
+			shield_front_arc_deg: 70.0
+			shield_ttc_threshold_sec: 1.0
+
+			odom_topic: /odom
+			scan_topic: /scan
+			cmd_vel_topic: /cmd_vel
+			spin_timeout_sec: 2.0
+			settle_time_sec: 0.05
+			use_sim_reset_service: false
+			reset_service_name: /reset_simulation
+
+			fixed_goal: [8.0, 0.0, 2.0]
+			randomize_goal_on_reset: true
+

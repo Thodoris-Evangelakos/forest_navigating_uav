@@ -16,6 +16,14 @@ pip install -e src/fastsim_forest_nav -e src/forest_nav_rl
 forest-nav-train-sac --config configs/training/sac.yaml
 ```
 
+Gazebo backend:
+
+```bash
+forest-nav-train-sac --config configs/training/sac_gazebo.yaml
+```
+
+`env.backend` in config chooses `fastsim` or `gazebo`.
+
 Outputs are saved under `outputs/runs/<experiment_name>_<id>/`.
 
 ## Live Monitoring (TensorBoard)
@@ -59,6 +67,14 @@ With explicit config:
 ```bash
 forest-nav-trajectories --model outputs/runs/sac_fastsim_005/final/sac_final_model.zip --config configs/training/sac.yaml --num-episodes 10 --deterministic
 ```
+
+Gazebo backend trajectory rollouts:
+
+```bash
+forest-nav-trajectories --model outputs/runs/sac_gazebo_001/final/sac_final_model.zip --config configs/training/sac_gazebo.yaml --num-episodes 5 --deterministic
+```
+
+Gazebo backend requires ROS2 Python interfaces (`rclpy`, `geometry_msgs`, `nav_msgs`, `sensor_msgs`) and active topics for `/odom` and `/scan`.
 
 ### Generated files
 

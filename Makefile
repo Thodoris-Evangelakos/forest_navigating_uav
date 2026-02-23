@@ -27,9 +27,10 @@ help:
 setup:
 	python3 -m venv .venv
 	$(PIP) install --upgrade pip
-	$(PIP) install -e src/fastsim_forest_nav -e src/forest_nav_rl
-	$(PIP) install pyyaml matplotlib
-	source .venv/bin/activate
+	$(PIP) install -r requirements.txt
+	$(PIP) install -e worldgen
+	$(PIP) install -e src/fastsim_forest_nav
+	$(PIP) install -e src/forest_nav_rl
 	@echo "✓ Setup complete. Use '$(PYTHON)' or activate .venv"
 
 verify:
@@ -37,6 +38,9 @@ verify:
 	$(PYTHON) -c "from fastsim_forest_nav.envs.forest_nav_env import ForestNavEnv; print('✓ ForestNavEnv imported:', ForestNavEnv)"
 	$(PYTHON) -c "import gymnasium; print('✓ gymnasium available')"
 	$(PYTHON) -c "import stable_baselines3; print('✓ stable_baselines3 available')"
+	$(PYTHON) -c "import tensorboard; print('✓ tensorboard available')"
+	$(PYTHON) -c "import matplotlib; print('✓ matplotlib available')"
+	$(PYTHON) -c "import yaml; print('✓ PyYAML available')"
 	@echo "✓ All imports verified"
 
 worldgen:
