@@ -3,17 +3,19 @@ from __future__ import annotations
 import argparse
 import signal
 import yaml
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 from collections import defaultdict
+import torch
 
 # SB3 imports
 from stable_baselines3 import SAC
-from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
-from stable_baselines3.common.vec_env import VecNormalize, SubprocVecEnv
+from stable_baselines3.common.vec_env import VecNormalize
 
+from forest_nav_rl.gym_async_vec_env import GymAsyncVecEnv
 from forest_nav_rl.utils import build_env_ctor_and_kwargs, get_env_backend
 
 
@@ -136,21 +138,14 @@ def make_run_dir(base_dir: str | Path, exp_name: str) -> Path:
 
 def build_vec_env(env_cfg: dict[str, Any], n_envs: int, seed: int, monitor_dir: str):
     env_ctor, env_kwargs = build_env_ctor_and_kwargs(env_cfg)
-
-    # Use SubprocVecEnv for parallel stepping (better CPU utilization)
-    vec_env_cls = SubprocVecEnv if n_envs > 1 else None
-
-    venv = make_vec_env(
-        env_ctor,
-        n_envs = n_envs,
-        seed = seed,
+    return GymAsyncVecEnv(
+        env_ctor=env_ctor,
+        env_kwargs=env_kwargs,
+        n_envs=n_envs,
+        seed=seed,
         monitor_dir=monitor_dir,
         monitor_kwargs={"info_keywords": MONITOR_INFO_KEYS},
-        env_kwargs=env_kwargs,
-        vec_env_cls=vec_env_cls
     )
-
-    return venv
 
 def maybe_wrap_vecnorm(venv, norm_cfg: dict[str, Any] | bool | None):
     if isinstance(norm_cfg, bool):
@@ -170,6 +165,32 @@ def maybe_wrap_vecnorm(venv, norm_cfg: dict[str, Any] | bool | None):
     )
     return venv, venv
 
+
+def _count_episodes_in_monitor_dir(monitor_dir: Path) -> int:
+    if not monitor_dir.exists():
+        return 0
+
+    total = 0
+    for monitor_file in monitor_dir.glob("*.monitor.csv"):
+        with monitor_file.open("r") as f:
+            for line in f:
+                stripped = line.strip()
+                if not stripped or stripped.startswith("#") or stripped.startswith("r,"):
+                    continue
+                total += 1
+    return total
+
+
+def configure_torch_for_device(device_arg: str) -> None:
+    requested_cuda = device_arg == "auto" or str(device_arg).startswith("cuda")
+    if not requested_cuda or not torch.cuda.is_available():
+        return
+
+    torch.backends.cuda.matmul.allow_tf32 = True
+    torch.backends.cudnn.allow_tf32 = True
+    torch.backends.cudnn.benchmark = True
+    torch.set_float32_matmul_precision("high")
+
 def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="Path to the YAML config file")
@@ -177,6 +198,7 @@ def main():
     parser.add_argument("--resume-from", type=str, default=None, 
                         help="Path to run directory to resume from (e.g., outputs/runs/sac_fastsim_005)")
     args = parser.parse_args()
+    configure_torch_for_device(args.device)
 
     cfg = load_yaml(args.config)
     backend = get_env_backend(cfg["env"])
@@ -213,6 +235,11 @@ def main():
     with open(run_dir / "config_used.yaml", "w") as f:
         yaml.dump(cfg, f)
 
+    train_monitor_dir = run_dir / "monitors" / "train"
+    episodes_before = _count_episodes_in_monitor_dir(train_monitor_dir)
+    started_at = datetime.now(timezone.utc)
+    print(f"Training started at: {started_at.isoformat()}")
+
     env_ctor, env_kwargs = build_env_ctor_and_kwargs(cfg["env"])
 
     if bool(cfg["env"].get("check_env", backend != "gazebo")):
@@ -229,7 +256,7 @@ def main():
         env_cfg=cfg["env"],
         n_envs=n_envs,
         seed=seed,
-        monitor_dir=str(run_dir / "monitors" / "train")
+        monitor_dir=str(train_monitor_dir)
     )
     norm_cfg = cfg["training"].get("norm", cfg["training"].get("normalize", {}))
     train_env, _ = maybe_wrap_vecnorm(train_env, norm_cfg)
@@ -367,10 +394,41 @@ def main():
         norm_path = run_dir / "final" / "vecnormalize.pkl"
         train_env.save(str(norm_path))
 
-    if interrupted or interrupt_cb._interrupted:
-        print(f"Training interrupted. Model saved to: {model_path}. Run directory: {run_dir}")
-    else:
+    ended_at = datetime.now(timezone.utc)
+    episodes_after = _count_episodes_in_monitor_dir(train_monitor_dir)
+    episodes_trained = max(0, episodes_after - episodes_before)
+    completed = not (interrupted or interrupt_cb._interrupted)
+
+    summary = {
+        "training_started_at": started_at.isoformat(),
+        "training_ended_at": ended_at.isoformat(),
+        "duration_seconds": round((ended_at - started_at).total_seconds(), 3),
+        "completed": completed,
+        "interrupted_by_ctrl_c": bool(interrupted or interrupt_cb._interrupted),
+        "episodes_trained": int(episodes_trained),
+        "episodes_before": int(episodes_before),
+        "episodes_after": int(episodes_after),
+        "run_dir": str(run_dir),
+        "final_model": str(model_path),
+    }
+
+    summary_path = run_dir / "final" / "training_summary.yaml"
+    with summary_path.open("w") as f:
+        yaml.safe_dump(summary, f, sort_keys=False)
+
+    print("Training summary:")
+    print(f"  started_at: {summary['training_started_at']}")
+    print(f"  ended_at: {summary['training_ended_at']}")
+    print(f"  duration_seconds: {summary['duration_seconds']}")
+    print(f"  completed: {summary['completed']}")
+    print(f"  interrupted_by_ctrl_c: {summary['interrupted_by_ctrl_c']}")
+    print(f"  episodes_trained: {summary['episodes_trained']}")
+    print(f"  summary_file: {summary_path}")
+
+    if completed:
         print(f"Training completed. Final model saved to: {model_path}. Run directory: {run_dir}")
+    else:
+        print(f"Training interrupted. Model saved to: {model_path}. Run directory: {run_dir}")
 
 if __name__ == "__main__":
     main()

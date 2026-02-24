@@ -2,7 +2,7 @@ experiment:
   name: sac_fastsim
   runs_dir: outputs/runs
   seed: 42
-  total_timesteps: 3_000_000
+  total_timesteps: 5_000_000
 
 env:
   env_kwargs:
@@ -27,7 +27,7 @@ env:
       reward_proximity_scale: 0.2
       reward_shield_penalty: 0.02
       reward_collision_penalty: 5.0
-      reward_success_bonus: 15.0
+      reward_success_bonus: 20.0
       reward_truncation_penalty: 8.0
       reward_yaw_rate_scale: 0.03
       reward_stall_penalty: 0.05
@@ -49,7 +49,7 @@ env:
 
 training:
   n_envs: 16
-  checkpoint_freq_step: 50_000
+  checkpoint_freq_step: 100_000
   save_replay_buffer: false
   norm:
     enabled: true
@@ -71,7 +71,7 @@ sac:
   tau: 0.005
   gamma: 0.99
   train_freq: 4            # collect 4 steps before updating
-  gradient_steps: 4        # 4 gradient steps per train_freq
+  gradient_steps: 8        # 4 gradient steps per train_freq
   ent_coef: auto
   target_update_interval: 1
   verbose: 1

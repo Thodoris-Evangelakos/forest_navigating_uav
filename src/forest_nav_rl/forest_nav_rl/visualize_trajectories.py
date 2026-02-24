@@ -52,6 +52,12 @@ def parse_args() -> argparse.Namespace:
         help="Random seed for episodes",
     )
     parser.add_argument(
+        "--device",
+        type=str,
+        default="auto",
+        help="auto, cpu, cuda",
+    )
+    parser.add_argument(
         "--deterministic",
         action="store_true",
         help="Use deterministic actions (default)",
@@ -290,7 +296,7 @@ def main() -> None:
         print(f"Resolved model path: {resolved_model_path}")
 
     # Load model
-    model = SAC.load(str(resolved_model_path))
+    model = SAC.load(str(resolved_model_path), device=args.device)
 
     resolved_config = resolve_config_path(resolved_model_path, args.config)
     if resolved_config is not None:

@@ -18,6 +18,7 @@ def parse_args() -> argparse.Namespace:
 	parser.add_argument("--config", type=Path, default=None, help="Path to config_used.yaml or training config")
 	parser.add_argument("--num-episodes", type=int, default=20, help="Number of episodes to evaluate")
 	parser.add_argument("--seed", type=int, default=None, help="Optional evaluation seed")
+	parser.add_argument("--device", type=str, default="auto", help="auto, cpu, cuda")
 	parser.add_argument("--deterministic", action="store_true", help="Use deterministic actions (default)")
 	parser.add_argument("--stochastic", action="store_false", dest="deterministic", help="Use stochastic actions")
 	parser.add_argument(
@@ -79,7 +80,7 @@ def load_obs_normalizer(vecnormalize_path: Path | None, env_ctor, env_kwargs: di
 def main() -> None:
 	args = parse_args()
 
-	model = SAC.load(args.model)
+	model = SAC.load(args.model, device=args.device)
 
 	resolved_config = resolve_config_path(args.model, args.config)
 	if resolved_config is not None:

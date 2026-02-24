@@ -88,6 +88,8 @@ From repository root (uses `.venv` tools via Makefile):
 	make rl-train RL_CONFIG=configs/training/sac.yaml DEVICE=cuda
 	```
 
+	`make rl-train`, `make rl-eval`, and `make rl-trajectories` default to `DEVICE=cuda` (override with `DEVICE=cpu` if needed).
+
 Gazebo is for demonstration/rollouts only; training is supported in fastsim.
 
 - Launch TensorBoard for runs:
@@ -129,7 +131,7 @@ Gazebo is for demonstration/rollouts only; training is supported in fastsim.
 	With overrides:
 
 	```bash
-	make rl-trajectories MODEL=outputs/runs/sac_fastsim_005/final/sac_final_model.zip NUM_EPISODES=10
+	make rl-trajectories MODEL=outputs/runs/sac_fastsim_005/final/sac_final_model.zip NUM_EPISODES=10 DEVICE=cuda
 	```
 
 For script details, see `scripts/README.md` and `worldgen/README.md`.
