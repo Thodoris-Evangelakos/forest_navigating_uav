@@ -17,19 +17,19 @@ env:
       v_max: 6.0
       wz_max: 2.5
       vz_max: 2.0
-      r_safe: 0.6
+      r_safe: 0.19
       episode_seconds: 30.0
       goal_tolerance: 0.5
       world_radius: 20.0
-      collision_threshold: 0.05
+      collision_threshold: 0.18
       default_z_target: 2.0
       z_error_scale: 5.0
       reward_progress_scale: 2.0
       reward_speed_scale: 0.02
       reward_step_penalty: 0.02
-      reward_proximity_scale: 0.2
-      reward_shield_penalty: 0.02
-      reward_collision_penalty: 5.0
+      reward_proximity_scale: 0.16
+      reward_shield_penalty: 0.015
+      reward_collision_penalty: 20.0
       reward_success_bonus: 5.0
       reward_truncation_penalty: 1.0
       reward_yaw_rate_scale: 0.03
@@ -37,9 +37,9 @@ env:
       progress_stall_threshold: 0.02
       yaw_penalty_speed_gate: 0.25
       shield_floor_z_min: 0.05
-      shield_yaw_damping: 0.35
-      shield_front_arc_deg: 70.0
-      shield_ttc_threshold_sec: 1.0
+      shield_yaw_damping: 0.3
+      shield_front_arc_deg: 55.0
+      shield_ttc_threshold_sec: 0.75
       odom_topic: /odom
       scan_topic: /scan
       cmd_vel_topic: /cmd_vel
@@ -49,7 +49,7 @@ env:
       reset_service_name: /reset_simulation
       fixed_goal: [8.0, 0.0, 2.0]
       randomize_goal_on_reset: true
-      start_goal_clearance: 1.0
+      start_goal_clearance: 0.6
       min_start_goal_distance: 8.0
       spawn_max_attempts: 500
 

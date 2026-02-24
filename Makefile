@@ -1,4 +1,4 @@
-.PHONY: setup verify worldgen worldgen-run rl-train rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
+.PHONY: setup verify worldgen worldgen-run rl-train rl-resume rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
@@ -17,6 +17,7 @@ help:
 	@echo "  worldgen    - Generate a forest world with seed 42"
 	@echo "  worldgen-run - Generate world and launch Gazebo"
 	@echo "  rl-train    - Train SAC policy (override RL_CONFIG=... DEVICE=...)"
+	@echo "  rl-resume   - Resume training from latest run (or RUN=outputs/runs/sac_fastsim_XXX)"
 	@echo "  rl-eval     - Evaluate trained policy (requires MODEL=...)"
 	@echo "  rl-tensorboard - Launch TensorBoard on outputs/runs (override TB_PORT=...)"
 	@echo "  rl-visualize - Build single-run report (latest if RUN is empty)"
@@ -47,7 +48,7 @@ verify:
 	@echo "✓ All imports verified"
 
 worldgen:
-	./scripts/worldgen/generate_world.sh --seed 42
+	./scripts/worldgen/generate_world.sh configs/worldgen/worldgen_run.yaml --seed 42
 
 worldgen-run:
 	./scripts/worldgen/generate_world_and_run.sh --seed 42
@@ -57,6 +58,22 @@ rl-train:
 		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG) --device $(DEVICE); \
 	else \
 		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG); \
+	fi
+
+rl-resume:
+	@RUN_DIR="$(RUN)"; \
+	if [ -z "$$RUN_DIR" ]; then \
+		RUN_DIR=$$(ls -dt outputs/runs/sac_fastsim_*/ 2>/dev/null | head -1 | sed 's|/$||'); \
+		if [ -z "$$RUN_DIR" ]; then \
+			echo "Error: No previous runs found. Usage: make rl-resume RUN=outputs/runs/sac_fastsim_XXX"; \
+			exit 1; \
+		fi; \
+		echo "Resuming from latest run: $$RUN_DIR"; \
+	fi; \
+	if [ -n "$(DEVICE)" ]; then \
+		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG) --resume-from $$RUN_DIR --device $(DEVICE); \
+	else \
+		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG) --resume-from $$RUN_DIR; \
 	fi
 
 rl-eval:

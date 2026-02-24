@@ -7,10 +7,10 @@ layout:
   components:
     - name: "clustered"
       distribution_ref: "clustered.yaml"
-      weight: 0.67
+      weight: 0.55
     - name: "regular"
       distribution_ref: "regular.yaml"
-      weight: 0.33
+      weight: 0.45
 
   field:
     # mixture weight w(x,y) in [0,1] for "clustered"

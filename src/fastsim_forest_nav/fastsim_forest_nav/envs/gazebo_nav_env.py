@@ -280,18 +280,57 @@ class GazeboForestNavEnv(gym.Env):
         info["is_success"] = bool(info.get("success", False))
         return info
 
+    def _sample_xy_in_bounds(self, x_bounds: tuple[float, float], y_bounds: tuple[float, float]) -> np.ndarray:
+        x_lo = float(max(-self._world_half_extent, min(x_bounds[0], x_bounds[1])))
+        x_hi = float(min(self._world_half_extent, max(x_bounds[0], x_bounds[1])))
+        y_lo = float(max(-self._world_half_extent, min(y_bounds[0], y_bounds[1])))
+        y_hi = float(min(self._world_half_extent, max(y_bounds[0], y_bounds[1])))
+
+        if x_lo >= x_hi or y_lo >= y_hi:
+            return np.array([0.0, 0.0], dtype=np.float32)
+
+        gx = float(self.np_random.uniform(x_lo, x_hi))
+        gy = float(self.np_random.uniform(y_lo, y_hi))
+        return np.array([gx, gy], dtype=np.float32)
+
     def _sample_goal_pose(self) -> np.ndarray:
         if not self.p.randomize_goal_on_reset:
             return np.asarray(self.p.fixed_goal, dtype=np.float32)
 
+        half = float(self._world_half_extent)
+        band_inner = 0.55 * half
+
+        start_xy = self.pos[:2].astype(np.float32)
+        if abs(float(start_xy[0])) >= abs(float(start_xy[1])):
+            axis = 0
+            start_side = 1.0 if float(start_xy[0]) >= 0.0 else -1.0
+        else:
+            axis = 1
+            start_side = 1.0 if float(start_xy[1]) >= 0.0 else -1.0
+
+        goal_side = -start_side
+
         for _ in range(self.p.spawn_max_attempts):
-            gx = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
-            gy = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
-            candidate = np.array([gx, gy, float(self.p.default_z_target)], dtype=np.float32)
+            if axis == 0:
+                x_bounds = (goal_side * band_inner, goal_side * half)
+                y_bounds = (-half, half)
+            else:
+                x_bounds = (-half, half)
+                y_bounds = (goal_side * band_inner, goal_side * half)
+
+            goal_xy = self._sample_xy_in_bounds(x_bounds=x_bounds, y_bounds=y_bounds)
+            if np.allclose(goal_xy, 0.0):
+                continue
+
+            candidate = np.array([goal_xy[0], goal_xy[1], float(self.p.default_z_target)], dtype=np.float32)
             if np.linalg.norm(candidate[:2] - self.pos[:2]) >= self.p.min_start_goal_distance:
                 return candidate
 
-        fallback = np.array([self._world_half_extent * 0.5, 0.0, float(self.p.default_z_target)], dtype=np.float32)
+        fallback = np.array([
+            -np.sign(float(start_xy[0])) * band_inner if axis == 0 else 0.0,
+            -np.sign(float(start_xy[1])) * band_inner if axis == 1 else 0.0,
+            float(self.p.default_z_target),
+        ], dtype=np.float32)
         return fallback.astype(np.float32)
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):

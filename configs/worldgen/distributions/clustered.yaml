@@ -1,10 +1,10 @@
 distribution:
   type: "clustered"
   params:
-    cluster_count: 10               # C  - more, smaller clusters for even coverage
-    cluster_radius: 8.0             # r_c - wider scatter avoids ultra-dense patches
-    scatter_shape: "gaussian"       # 'gaussian' | 'uniform_disk'
-    mean_per_cluster: 6             # fewer children per parent, spread across more clusters
-    min_parent_distance: 10.0       # keep parents well separated to avoid merged blobs
+    cluster_count: 14               # C  - more parents reduce large uncovered regions
+    cluster_radius: 9.5             # r_c - wider scatter softens clump boundaries
+    scatter_shape: "uniform_disk"   # flatter local density than gaussian peak-at-center
+    mean_per_cluster: 5             # fewer children per parent to avoid compact hotspots
+    min_parent_distance: 8.0        # allow better parent coverage of the world
     allow_cluster_overlap: false    # if true, min_parent_distance is ignored
-    background_fraction: 0.25       # more CSR fill to soften gaps between clusters
+    background_fraction: 0.35       # stronger background fill between clusters

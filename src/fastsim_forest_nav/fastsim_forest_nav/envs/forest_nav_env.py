@@ -49,6 +49,7 @@ class SimParams:
     # safety shield
     shield_floor_z_min: float
     shield_yaw_damping: float
+    shield_lookahead_margin: float
 
     # world generation for fastsim (pure in-memory)
     worldgen_config_relpath: str
@@ -378,7 +379,7 @@ class ForestNavEnv(gym.Env):
             pos_xy = self.pos[:2].astype(np.float64)
 
             # max distance UAV can travel this step plus safety bubble
-            lookahead = abs(safe_v) * self.p.dt + self.p.r_safe + 2.0
+            lookahead = abs(safe_v) * self.p.dt + self.p.r_safe + self.p.shield_lookahead_margin
             nearby_idx = self._query_nearby_trees(float(self.pos[0]), float(self.pos[1]), lookahead)
 
             for idx in nearby_idx:
@@ -603,7 +604,12 @@ class ForestNavEnv(gym.Env):
         needed = self.trees[:, 2] + clearance
         return bool(np.all(d >= needed))
 
-    def _sample_free_xy(self, clearance: float) -> np.ndarray:
+    def _sample_free_xy(
+        self,
+        clearance: float,
+        x_bounds: Optional[Tuple[float, float]] = None,
+        y_bounds: Optional[Tuple[float, float]] = None,
+    ) -> np.ndarray:
         """ Sampling the world for a viable (clear of trees) start or goal position
             Obviously very junky approach, but should be fine for reasonable tree densities
             If it becomes an issue I can use some data structure or just setup the worldgen to output some pre-sampled free points
@@ -616,9 +622,22 @@ class ForestNavEnv(gym.Env):
             returns (0, 0) which is likely to be in the middle of the world and hopefully not inside a tree (terrible idea I think, but saves us from looping forever)
             I should probably raise an exception
         """
+        if x_bounds is None:
+            x_bounds = (-self._world_half_extent, self._world_half_extent)
+        if y_bounds is None:
+            y_bounds = (-self._world_half_extent, self._world_half_extent)
+
+        x_lo = float(max(-self._world_half_extent, min(x_bounds[0], x_bounds[1])))
+        x_hi = float(min(self._world_half_extent, max(x_bounds[0], x_bounds[1])))
+        y_lo = float(max(-self._world_half_extent, min(y_bounds[0], y_bounds[1])))
+        y_hi = float(min(self._world_half_extent, max(y_bounds[0], y_bounds[1])))
+
+        if x_lo >= x_hi or y_lo >= y_hi:
+            return np.array([0.0, 0.0], dtype=np.float32)
+
         for _ in range(self.p.spawn_max_attempts):
-            x = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
-            y = float(self.np_random.uniform(-self._world_half_extent, self._world_half_extent))
+            x = float(self.np_random.uniform(x_lo, x_hi))
+            y = float(self.np_random.uniform(y_lo, y_hi))
             if self._point_clear_of_trees(x, y, clearance):
                 return np.array([x, y], dtype=np.float32)
 
@@ -631,6 +650,29 @@ class ForestNavEnv(gym.Env):
             np.array: Array of shape (3,) with x, y, z coordinates of the start position, and a separate float for yaw
             The z coordinate is set to the default_z_target for now, but I can change that later if I want to add some verticality to the start/goal sampling
         """
+        half = float(self._world_half_extent)
+        band_inner = 0.55 * half
+
+        for _ in range(self.p.spawn_max_attempts):
+            axis = int(self.np_random.integers(0, 2))
+            side = -1.0 if bool(self.np_random.integers(0, 2)) else 1.0
+
+            if axis == 0:
+                x_bounds = (side * band_inner, side * half)
+                y_bounds = (-half, half)
+            else:
+                x_bounds = (-half, half)
+                y_bounds = (side * band_inner, side * half)
+
+            start_xy = self._sample_free_xy(
+                clearance=self.p.start_goal_clearance,
+                x_bounds=x_bounds,
+                y_bounds=y_bounds,
+            )
+            if not np.allclose(start_xy, 0.0):
+                yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
+                return np.array([start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32), yaw
+
         start_xy = self._sample_free_xy(clearance=self.p.start_goal_clearance)
         yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
         return np.array([start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32), yaw
@@ -641,12 +683,42 @@ class ForestNavEnv(gym.Env):
         Returns:
             np.array: Array of shape (3,) with x, y, z coordinates of the goal position
         """
+        half = float(self._world_half_extent)
+        band_inner = 0.55 * half
+
+        start_xy = self.pos[:2].astype(np.float32)
+        if abs(float(start_xy[0])) >= abs(float(start_xy[1])):
+            axis = 0
+            start_side = 1.0 if float(start_xy[0]) >= 0.0 else -1.0
+        else:
+            axis = 1
+            start_side = 1.0 if float(start_xy[1]) >= 0.0 else -1.0
+
+        goal_side = -start_side
+
         for _ in range(self.p.spawn_max_attempts):
-            goal_xy = self._sample_free_xy(clearance=self.p.start_goal_clearance)
+            if axis == 0:
+                x_bounds = (goal_side * band_inner, goal_side * half)
+                y_bounds = (-half, half)
+            else:
+                x_bounds = (-half, half)
+                y_bounds = (goal_side * band_inner, goal_side * half)
+
+            goal_xy = self._sample_free_xy(
+                clearance=self.p.start_goal_clearance,
+                x_bounds=x_bounds,
+                y_bounds=y_bounds,
+            )
+            if np.allclose(goal_xy, 0.0):
+                continue
+
             if np.linalg.norm(goal_xy - self.pos[:2]) >= self.p.min_start_goal_distance:
                 return np.array([goal_xy[0], goal_xy[1], self.p.default_z_target], dtype=np.float32)
 
-        fallback = np.array([self._world_half_extent * 0.5, 0.0], dtype=np.float32)
+        fallback = np.array([
+            -np.sign(float(start_xy[0])) * band_inner if axis == 0 else 0.0,
+            -np.sign(float(start_xy[1])) * band_inner if axis == 1 else 0.0,
+        ], dtype=np.float32)
         return np.array([fallback[0], fallback[1], self.p.default_z_target], dtype=np.float32)
     
 if __name__ == "__main__":
@@ -656,10 +728,10 @@ if __name__ == "__main__":
         r_safe=0.6, episode_seconds=30.0, goal_tolerance=0.5, world_radius=20.0,
         collision_threshold=0.05, default_z_target=2.0, z_error_scale=5.0,
         reward_progress_scale=2.0, reward_speed_scale=0.02, reward_step_penalty=0.02,
-        reward_proximity_scale=0.2, reward_shield_penalty=0.02, reward_collision_penalty=5.0,
+        reward_proximity_scale=0.2, reward_shield_penalty=0.02, reward_collision_penalty=20.0,
         reward_success_bonus=5.0, reward_truncation_penalty=1.0, reward_yaw_rate_scale=0.03,
         reward_stall_penalty=0.05, progress_stall_threshold=0.02, yaw_penalty_speed_gate=0.25,
-        shield_floor_z_min=0.05, shield_yaw_damping=0.35,
+        shield_floor_z_min=0.05, shield_yaw_damping=0.35, shield_lookahead_margin=1.0,
         worldgen_config_relpath="configs/worldgen/worldgen_run.yaml", worldgen_seed_offset=0,
         tree_radius_mean=0.25, tree_radius_std=0.05, tree_radius_min=0.10, tree_radius_max=0.60,
         start_goal_clearance=1.0, min_start_goal_distance=8.0, spawn_max_attempts=500

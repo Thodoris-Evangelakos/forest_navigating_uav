@@ -88,6 +88,39 @@ def resolve_config_path(model_path: Path, config_path: Path | None) -> Path | No
     return None
 
 
+def resolve_model_path(model_path: Path) -> Path:
+    candidates: list[Path] = [model_path]
+
+    path_str = str(model_path)
+    if path_str.endswith(".zip.zip"):
+        candidates.append(Path(path_str[:-4]))
+
+    if model_path.suffix != ".zip":
+        candidates.append(model_path.with_suffix(".zip"))
+
+    if model_path.name == "best_model.zip" and model_path.parent.name == "best":
+        run_dir = model_path.parent.parent
+        candidates.append(run_dir / "final" / "sac_final_model.zip")
+
+    seen: set[Path] = set()
+    unique_candidates: list[Path] = []
+    for candidate in candidates:
+        if candidate not in seen:
+            unique_candidates.append(candidate)
+            seen.add(candidate)
+
+    for candidate in unique_candidates:
+        if candidate.exists():
+            return candidate
+
+    attempted = "\n".join(f"  - {candidate}" for candidate in unique_candidates)
+    raise FileNotFoundError(
+        "Could not find model file. Attempted paths:\n"
+        f"{attempted}\n"
+        "Tip: if /best/best_model.zip is missing, try /final/sac_final_model.zip"
+    )
+
+
 def resolve_vecnormalize_path(model_path: Path) -> Path | None:
     model_parent = model_path.parent
 
@@ -252,10 +285,14 @@ def main() -> None:
     matplotlib.use("Agg")
     args = parse_args()
 
-    # Load model
-    model = SAC.load(args.model)
+    resolved_model_path = resolve_model_path(args.model)
+    if resolved_model_path != args.model:
+        print(f"Resolved model path: {resolved_model_path}")
 
-    resolved_config = resolve_config_path(args.model, args.config)
+    # Load model
+    model = SAC.load(str(resolved_model_path))
+
+    resolved_config = resolve_config_path(resolved_model_path, args.config)
     if resolved_config is not None:
         print(f"Using config: {resolved_config}")
 
@@ -263,7 +300,7 @@ def main() -> None:
     base_env = env_ctor(**env_kwargs)
     env = TrajectoryRecorder(base_env)
 
-    vecnormalize_path = resolve_vecnormalize_path(args.model)
+    vecnormalize_path = resolve_vecnormalize_path(resolved_model_path)
     obs_normalizer = load_obs_normalizer(vecnormalize_path, env_ctor, env_kwargs)
     if vecnormalize_path is not None:
         print(f"Using VecNormalize stats: {vecnormalize_path}")
@@ -275,7 +312,7 @@ def main() -> None:
         env.reset(seed=args.seed)
 
     # Determine output directory
-    output_dir = args.output_dir if args.output_dir is not None else args.model.parent / "trajectories"
+    output_dir = args.output_dir if args.output_dir is not None else resolved_model_path.parent / "trajectories"
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Run episodes and generate plots

@@ -84,9 +84,11 @@ class FinalModelCallback(BaseCallback):
         self.model.save(str(model_path))
         
         rb_path = self.save_path / "replay_buffer.pkl"
-        self.model.save_replay_buffer(str(rb_path))
+        save_rb = getattr(self.model, "save_replay_buffer", None)
+        if callable(save_rb):
+            save_rb(str(rb_path))
         
-        if self.save_vecnormalize and hasattr(self.training_env, 'save'):
+        if self.save_vecnormalize and isinstance(self.training_env, VecNormalize):
             norm_path = self.save_path / "vecnormalize.pkl"
             self.training_env.save(str(norm_path))
 
@@ -172,6 +174,8 @@ def main():
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, required=True, help="Path to the YAML config file")
     parser.add_argument("--device", default="auto", help="auto, cpu, cuda")
+    parser.add_argument("--resume-from", type=str, default=None, 
+                        help="Path to run directory to resume from (e.g., outputs/runs/sac_fastsim_005)")
     args = parser.parse_args()
 
     cfg = load_yaml(args.config)
@@ -186,7 +190,17 @@ def main():
     base_runs_dir = cfg["experiment"]["runs_dir"]
     seed = int(cfg["experiment"].get("seed", 0))
 
-    run_dir = make_run_dir(base_runs_dir, exp_name)
+    # Handle resume from previous run
+    if args.resume_from:
+        run_dir = Path(args.resume_from)
+        if not run_dir.exists():
+            raise ValueError(f"Resume directory does not exist: {run_dir}")
+        print(f"Resuming training from: {run_dir}")
+        is_resume = True
+    else:
+        run_dir = make_run_dir(base_runs_dir, exp_name)
+        is_resume = False
+
     (run_dir / "checkpoints").mkdir(exist_ok=True)
     (run_dir / "eval").mkdir(exist_ok=True)
     (run_dir / "best").mkdir(exist_ok=True)
@@ -275,28 +289,54 @@ def main():
         save_vecnormalize=save_vecnormalize
     )
 
-    # SAC model
+    # SAC model - either load from checkpoint or create new
     sac_cfg = cfg["sac"]
     policy_kwargs = sac_cfg.get("policy_kwargs", {})
-    model = SAC(
-        policy=sac_cfg.get("policy", "MlpPolicy"),
-        env=train_env,
-        learning_rate=sac_cfg.get("learning_rate", 3e-4),
-        buffer_size=sac_cfg.get("buffer_size", 1_000_000),
-        learning_starts=int(sac_cfg.get("learning_starts", 10_000)),
-        batch_size=sac_cfg.get("batch_size", 256),
-        tau=sac_cfg.get("tau", 0.005),
-        gamma=sac_cfg.get("gamma", 0.99),
-        train_freq=sac_cfg.get("train_freq", (1, "step")),
-        gradient_steps=sac_cfg.get("gradient_steps", -1), # -1 means match env steps in rollout
-        ent_coef=sac_cfg.get("ent_coef", "auto"),
-        target_update_interval=sac_cfg.get("target_update_interval", 1),
-        tensorboard_log=str(run_dir / "tb"),
-        verbose=sac_cfg.get("verbose", 1),
-        seed=seed,
-        policy_kwargs=policy_kwargs,
-        device=args.device
-    )
+    
+    if is_resume:
+        # Load model from final or best checkpoint
+        model_path = run_dir / "final" / "sac_final_model.zip"
+        if not model_path.exists():
+            raise ValueError(f"Model file not found for resume: {model_path}")
+        
+        print(f"Loading model from: {model_path}")
+        model = SAC.load(str(model_path), env=train_env, device=args.device)
+        
+        # Load replay buffer if it exists
+        rb_path = run_dir / "final" / "replay_buffer.pkl"
+        if rb_path.exists():
+            print(f"Loading replay buffer from: {rb_path}")
+            model.load_replay_buffer(str(rb_path))
+        else:
+            print(f"Warning: Replay buffer not found at {rb_path}. Starting with empty buffer.")
+        
+        # Load VecNormalize stats if they exist
+        if isinstance(train_env, VecNormalize):
+            norm_path = run_dir / "final" / "vecnormalize.pkl"
+            if norm_path.exists():
+                print(f"Loading VecNormalize stats from: {norm_path}")
+                train_env = VecNormalize.load(str(norm_path), train_env)
+    else:
+        # Create new model
+        model = SAC(
+            policy=sac_cfg.get("policy", "MlpPolicy"),
+            env=train_env,
+            learning_rate=sac_cfg.get("learning_rate", 3e-4),
+            buffer_size=sac_cfg.get("buffer_size", 1_000_000),
+            learning_starts=int(sac_cfg.get("learning_starts", 10_000)),
+            batch_size=sac_cfg.get("batch_size", 256),
+            tau=sac_cfg.get("tau", 0.005),
+            gamma=sac_cfg.get("gamma", 0.99),
+            train_freq=sac_cfg.get("train_freq", (1, "step")),
+            gradient_steps=sac_cfg.get("gradient_steps", -1), # -1 means match env steps in rollout
+            ent_coef=sac_cfg.get("ent_coef", "auto"),
+            target_update_interval=sac_cfg.get("target_update_interval", 1),
+            tensorboard_log=str(run_dir / "tb"),
+            verbose=sac_cfg.get("verbose", 1),
+            seed=seed,
+            policy_kwargs=policy_kwargs,
+            device=args.device
+        )
 
     total_timesteps = int(cfg["experiment"]["total_timesteps"])
 

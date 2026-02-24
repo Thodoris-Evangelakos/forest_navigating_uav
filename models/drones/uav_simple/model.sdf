@@ -17,13 +17,13 @@
 
       <collision name="collision">
         <geometry>
-          <box><size>0.4 0.4 0.12</size></box>
+          <box><size>0.32 0.32 0.12</size></box>
         </geometry>
       </collision>
 
       <visual name="visual">
         <geometry>
-          <box><size>0.4 0.4 0.12</size></box>
+          <box><size>0.32 0.32 0.12</size></box>
         </geometry>
       </visual>
     </link>
