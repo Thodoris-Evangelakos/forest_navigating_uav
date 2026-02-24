@@ -2,7 +2,7 @@ experiment:
   name: sac_fastsim
   runs_dir: outputs/runs
   seed: 42
-  total_timesteps: 3_000_000
+  total_timesteps: 1_000_000
 
 env:
   env_kwargs:
@@ -14,22 +14,24 @@ env:
       wz_max: 2.5
       vz_max: 2.0
       r_safe: 0.6
-      episode_seconds: 30.0
+      episode_seconds: 60.0
       goal_tolerance: 0.5
       world_radius: 20.0
       collision_threshold: 0.05
       default_z_target: 2.0
       z_error_scale: 5.0
-      reward_progress_scale: 2.0
+
+      reward_progress_scale: 5.0
       reward_speed_scale: 0.02
       reward_step_penalty: 0.02
       reward_proximity_scale: 0.2
       reward_shield_penalty: 0.02
       reward_collision_penalty: 5.0
-      reward_success_bonus: 5.0
+      reward_success_bonus: 10.0
       reward_truncation_penalty: 1.0
       reward_yaw_rate_scale: 0.03
       reward_stall_penalty: 0.05
+
       progress_stall_threshold: 0.02
       yaw_penalty_speed_gate: 0.25
       shield_yaw_damping: 0.35
@@ -75,4 +77,4 @@ sac:
   policy_kwargs:
     net_arch: [512, 512]   # larger network for more GPU work
 
-save_vecnorm: false
+save_vecnorm: true

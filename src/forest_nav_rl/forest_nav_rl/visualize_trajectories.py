@@ -16,6 +16,7 @@ from matplotlib.patches import Circle
 from fastsim_forest_nav.wrappers import TrajectoryRecorder
 from forest_nav_rl.utils import build_env_ctor_and_kwargs
 from stable_baselines3 import SAC
+from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 
 def parse_args() -> argparse.Namespace:
@@ -53,8 +54,15 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--deterministic",
         action="store_true",
-        help="Use deterministic actions",
+        help="Use deterministic actions (default)",
     )
+    parser.add_argument(
+        "--stochastic",
+        action="store_false",
+        dest="deterministic",
+        help="Use stochastic actions",
+    )
+    parser.set_defaults(deterministic=True)
     return parser.parse_args()
 
 
@@ -66,6 +74,49 @@ def load_env_ctor_and_kwargs(config_path: Path | None):
             cfg = yaml.safe_load(handle)
     env_cfg = cfg.get("env", {"backend": "fastsim", "env_kwargs": {"params": {}}})
     return build_env_ctor_and_kwargs(env_cfg)
+
+
+def resolve_config_path(model_path: Path, config_path: Path | None) -> Path | None:
+    if config_path is not None:
+        return config_path
+
+    model_parent = model_path.parent
+    candidate_run_config = model_parent.parent / "config_used.yaml"
+    if candidate_run_config.exists():
+        return candidate_run_config
+
+    return None
+
+
+def resolve_vecnormalize_path(model_path: Path) -> Path | None:
+    model_parent = model_path.parent
+
+    candidates = [
+        model_parent / "vecnormalize.pkl",
+        model_parent.parent / "vecnormalize.pkl",
+        model_parent.parent / "final" / "vecnormalize.pkl",
+    ]
+
+    for candidate in candidates:
+        if candidate.exists():
+            return candidate
+
+    return None
+
+
+def load_obs_normalizer(
+    vecnormalize_path: Path | None,
+    env_ctor,
+    env_kwargs: dict,
+) -> VecNormalize | None:
+    if vecnormalize_path is None:
+        return None
+
+    dummy_env = DummyVecEnv([lambda: env_ctor(**env_kwargs)])
+    vecnorm = VecNormalize.load(str(vecnormalize_path), dummy_env)
+    vecnorm.training = False
+    vecnorm.norm_reward = False
+    return vecnorm
 
 
 def plot_trajectory_map(
@@ -80,6 +131,7 @@ def plot_trajectory_map(
 ) -> None:
     """Plot forest map with trees, start/goal, and time-colored trajectory."""
     fig, ax = plt.subplots(figsize=(10, 10))
+    plasma_cmap = plt.get_cmap("plasma")
 
     # Plot trees as circles
     if trees is not None and len(trees) > 0:
@@ -126,13 +178,13 @@ def plot_trajectory_map(
             ax.plot(
                 points[i : i + 2, 0],
                 points[i : i + 2, 1],
-                color=cm.plasma(i / max(len(points) - 1, 1)),
+                color=plasma_cmap(i / max(len(points) - 1, 1)),
                 linewidth=2.0,
                 alpha=0.8,
             )
 
         # Add colorbar to show time progression
-        sm = cm.ScalarMappable(cmap=cm.plasma, norm=Normalize(vmin=0, vmax=len(points) - 1))
+        sm = cm.ScalarMappable(cmap=plasma_cmap, norm=Normalize(vmin=0, vmax=len(points) - 1))
         sm.set_array([])
         cbar = plt.colorbar(sm, ax=ax, label="Time step", shrink=0.8)
 
@@ -163,7 +215,10 @@ def plot_trajectory_map(
 
 
 def run_episode_with_trajectory(
-    env: TrajectoryRecorder, model: SAC, deterministic: bool
+    env: TrajectoryRecorder,
+    model: SAC,
+    deterministic: bool,
+    obs_normalizer: VecNormalize | None,
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool, bool]:
     """Run one episode and return trajectory data."""
     obs, info = env.reset()
@@ -173,7 +228,13 @@ def run_episode_with_trajectory(
     collision = False
 
     while not (terminated or truncated):
-        action, _states = model.predict(obs, deterministic=deterministic)
+        policy_obs = obs
+        if obs_normalizer is not None:
+            normalized_obs = obs_normalizer.normalize_obs(
+                np.asarray([obs], dtype=np.float32)
+            )
+            policy_obs = np.asarray(normalized_obs, dtype=np.float32)[0]
+        action, _states = model.predict(policy_obs, deterministic=deterministic)
         obs, reward, terminated, truncated, info = env.step(action)
 
     success = bool(info.get("success", False))
@@ -194,9 +255,20 @@ def main() -> None:
     # Load model
     model = SAC.load(args.model)
 
-    env_ctor, env_kwargs = load_env_ctor_and_kwargs(args.config)
+    resolved_config = resolve_config_path(args.model, args.config)
+    if resolved_config is not None:
+        print(f"Using config: {resolved_config}")
+
+    env_ctor, env_kwargs = load_env_ctor_and_kwargs(resolved_config)
     base_env = env_ctor(**env_kwargs)
     env = TrajectoryRecorder(base_env)
+
+    vecnormalize_path = resolve_vecnormalize_path(args.model)
+    obs_normalizer = load_obs_normalizer(vecnormalize_path, env_ctor, env_kwargs)
+    if vecnormalize_path is not None:
+        print(f"Using VecNormalize stats: {vecnormalize_path}")
+    else:
+        print("No VecNormalize stats found; running with raw observations.")
 
     # Set seed if provided
     if args.seed is not None:
@@ -210,7 +282,10 @@ def main() -> None:
     episode_stats = []
     for episode_idx in range(args.num_episodes):
         trajectory, trees, start_pos, goal_pos, success, collision = run_episode_with_trajectory(
-            env, model, deterministic=args.deterministic
+            env,
+            model,
+            deterministic=args.deterministic,
+            obs_normalizer=obs_normalizer,
         )
 
         episode_stats.append(
@@ -246,6 +321,8 @@ def main() -> None:
     print(f"\nAll trajectory plots saved to: {output_dir}")
 
     env.close()
+    if obs_normalizer is not None:
+        obs_normalizer.close()
 
 
 if __name__ == "__main__":

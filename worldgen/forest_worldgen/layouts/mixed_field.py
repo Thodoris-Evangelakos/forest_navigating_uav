@@ -179,10 +179,24 @@ def generate_mixed_field(layout_config, world_config, project_root):
     counts = [0] * len(dists)
     warned = False
     grid = ProximityGrid(min_distance) if min_distance > 0 else None
+    forced_relaxations = 0
 
-    for _ in range(total_count):
+    for placed_count in range(total_count):
+        progress = (placed_count / max(total_count, 1))
+        if progress >= 0.95:
+            attempt_budget = min(max_attempts, 20)
+        elif progress >= 0.90:
+            attempt_budget = min(max_attempts, 30)
+        elif progress >= 0.80:
+            attempt_budget = min(max_attempts, 60)
+        else:
+            attempt_budget = max_attempts
+
+        if forced_relaxations >= 8:
+            attempt_budget = min(attempt_budget, 25)
+
         placed = False
-        for _ in range(max_attempts):
+        for _ in range(attempt_budget):
             chosen = _weighted_choice(base_weights, total_weight)
             x, y = dists[chosen]['sampler']()
             if random.random() > _component_field_weight(chosen, x, y):
@@ -194,6 +208,7 @@ def generate_mixed_field(layout_config, world_config, project_root):
                 grid.insert(x, y)
             counts[chosen] += 1
             placed = True
+            forced_relaxations = max(0, forced_relaxations - 1)
             break
         if not placed:
             chosen = _weighted_choice(base_weights, total_weight)
@@ -202,6 +217,7 @@ def generate_mixed_field(layout_config, world_config, project_root):
             if grid is not None:
                 grid.insert(x, y)
             counts[chosen] += 1
+            forced_relaxations += 1
             if not warned:
                 print("Warning: relaxed placement constraints in mixture_field")
                 warned = True

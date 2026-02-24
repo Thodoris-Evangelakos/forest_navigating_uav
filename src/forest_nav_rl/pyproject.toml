@@ -18,6 +18,7 @@ dependencies = [
 
 [project.scripts]
 forest-nav-train-sac = "forest_nav_rl.train_sac:main"
+forest-nav-eval-policy = "forest_nav_rl.eval_policy:main"
 forest-nav-visualize = "forest_nav_rl.visualize_training:main"
 forest-nav-trajectories = "forest_nav_rl.visualize_trajectories:main"
 

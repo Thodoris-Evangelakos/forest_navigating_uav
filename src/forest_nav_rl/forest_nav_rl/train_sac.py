@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import signal
 import yaml
 from pathlib import Path
 from typing import Any
@@ -88,6 +89,31 @@ class FinalModelCallback(BaseCallback):
         if self.save_vecnormalize and hasattr(self.training_env, 'save'):
             norm_path = self.save_path / "vecnormalize.pkl"
             self.training_env.save(str(norm_path))
+
+
+class GracefulInterruptCallback(BaseCallback):
+    """Catches Ctrl+C (SIGINT) and stops training gracefully."""
+    def __init__(self):
+        super().__init__()
+        self._interrupted = False
+        self._original_handler = None
+
+    def _init_callback(self) -> None:
+        self._original_handler = signal.getsignal(signal.SIGINT)
+        signal.signal(signal.SIGINT, self._signal_handler)
+
+    def _signal_handler(self, signum, frame):
+        print("\n[GracefulInterrupt] Ctrl+C received. Stopping training after current step...")
+        self._interrupted = True
+
+    def _on_step(self) -> bool:
+        # Return False to stop training
+        return not self._interrupted
+
+    def _on_training_end(self) -> None:
+        # Restore original signal handler
+        if self._original_handler is not None:
+            signal.signal(signal.SIGINT, self._original_handler)
 
 
 def load_yaml(path: str | Path) -> dict[str, Any]:
@@ -274,11 +300,19 @@ def main():
 
     total_timesteps = int(cfg["experiment"]["total_timesteps"])
 
-    model.learn(
-        total_timesteps=total_timesteps,
-        callback=[checkpoint_cb, eval_cb, safety_cb, final_model_cb],
-        progress_bar=True
-    )
+    # Graceful interrupt handler for Ctrl+C
+    interrupt_cb = GracefulInterruptCallback()
+
+    interrupted = False
+    try:
+        model.learn(
+            total_timesteps=total_timesteps,
+            callback=[checkpoint_cb, eval_cb, safety_cb, final_model_cb, interrupt_cb],
+            progress_bar=True
+        )
+    except KeyboardInterrupt:
+        interrupted = True
+        print("\n[GracefulInterrupt] KeyboardInterrupt caught. Saving model...")
     
     # save final model and optionally VecNormalize stats
     model_path = run_dir / "final" / "sac_final_model.zip"
@@ -293,7 +327,10 @@ def main():
         norm_path = run_dir / "final" / "vecnormalize.pkl"
         train_env.save(str(norm_path))
 
-    print(f"Training completed. Final model saved to: {model_path}. Run directory: {run_dir}")
+    if interrupted or interrupt_cb._interrupted:
+        print(f"Training interrupted. Model saved to: {model_path}. Run directory: {run_dir}")
+    else:
+        print(f"Training completed. Final model saved to: {model_path}. Run directory: {run_dir}")
 
 if __name__ == "__main__":
     main()

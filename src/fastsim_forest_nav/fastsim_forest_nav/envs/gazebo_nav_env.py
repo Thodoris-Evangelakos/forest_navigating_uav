@@ -14,26 +14,19 @@ from fastsim_forest_nav.envs.forest_nav_env import SimParams
 
 @dataclass
 class GazeboParams(SimParams):
-    odom_topic: str = "/odom"
-    scan_topic: str = "/scan"
-    cmd_vel_topic: str = "/cmd_vel"
-
-    use_sim_reset_service: bool = False
-    reset_service_name: str = "/reset_simulation"
-
-    spin_timeout_sec: float = 2.0
-    settle_time_sec: float = 0.05
-
-    # goal handling (only external absolute state + goal are assumed)
-    fixed_goal: list[float] = field(default_factory=lambda: [8.0, 0.0, 2.0])
-    randomize_goal_on_reset: bool = True
-
-    # lidar guardrails
-    lidar_min_valid_range: float = 0.03
-
-    # lidar-based safety shield
-    shield_front_arc_deg: float = 70.0
-    shield_ttc_threshold_sec: float = 1.0
+    """Gazebo-specific parameters - all values must come from config."""
+    odom_topic: str
+    scan_topic: str
+    cmd_vel_topic: str
+    use_sim_reset_service: bool
+    reset_service_name: str
+    spin_timeout_sec: float
+    settle_time_sec: float
+    fixed_goal: list[float]
+    randomize_goal_on_reset: bool
+    lidar_min_valid_range: float
+    shield_front_arc_deg: float
+    shield_ttc_threshold_sec: float
 
 
 class GazeboForestNavEnv(gym.Env):

@@ -20,6 +20,14 @@ forest-nav-train-sac --config configs/training/sac.yaml
 
 Outputs are saved under `outputs/runs/<experiment_name>_<id>/`.
 
+## Evaluate Policy
+
+```bash
+forest-nav-eval-policy --model outputs/runs/sac_fastsim_005/best/best_model.zip --num-episodes 20 --deterministic
+```
+
+The evaluator auto-loads `config_used.yaml` and `vecnormalize.pkl` from the run when available.
+
 ## Live Monitoring (TensorBoard)
 
 ```bash

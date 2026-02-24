@@ -12,55 +12,56 @@ from stable_baselines3.common.env_checker import check_env
 
 @dataclass
 class SimParams:
-    """Parameters for the simulation, easier to maintain and tweak
+    """Parameters for the simulation - all values must be provided from config.
+    No defaults here to ensure single source of truth in sac.yaml.
     """
-    dt: float = 0.1
-    lidar_num_beams: int = 180
-    lidar_range_max: float = 30.0
-    v_max: float = 6.0
-    wz_max: float = 2.5
-    vz_max: float = 2.0
-    r_safe: float = 0.6
-    episode_seconds: float = 30.0
-    goal_tolerance: float = 0.5
-    world_radius: float = 20.0
-
-    collision_threshold: float = 0.05
+    # simulation / physics
+    dt: float
+    lidar_num_beams: int
+    lidar_range_max: float
+    v_max: float
+    wz_max: float
+    vz_max: float
+    r_safe: float
+    episode_seconds: float
+    goal_tolerance: float
+    world_radius: float
+    collision_threshold: float
 
     # vertical tracking / observation scaling
-    default_z_target: float = 2.0
-    z_error_scale: float = 5.0
+    default_z_target: float
+    z_error_scale: float
 
     # reward shaping
-    reward_progress_scale: float = 2.0
-    reward_speed_scale: float = 0.05
-    reward_step_penalty: float = 0.01
-    reward_proximity_scale: float = 0.2
-    reward_shield_penalty: float = 0.02
-    reward_collision_penalty: float = 5.0
-    reward_success_bonus: float = 5.0
-    reward_truncation_penalty: float = 0.0
-    reward_yaw_rate_scale: float = 0.0
-    reward_stall_penalty: float = 0.0
-    progress_stall_threshold: float = 0.0
-    yaw_penalty_speed_gate: float = 0.0
+    reward_progress_scale: float
+    reward_speed_scale: float
+    reward_step_penalty: float
+    reward_proximity_scale: float
+    reward_shield_penalty: float
+    reward_collision_penalty: float
+    reward_success_bonus: float
+    reward_truncation_penalty: float
+    reward_yaw_rate_scale: float
+    reward_stall_penalty: float
+    progress_stall_threshold: float
+    yaw_penalty_speed_gate: float
 
     # safety shield
-    shield_floor_z_min: float = 0.05
-    shield_yaw_damping: float = 0.0
+    shield_floor_z_min: float
+    shield_yaw_damping: float
 
     # world generation for fastsim (pure in-memory)
-    worldgen_config_relpath: str = "configs/worldgen/worldgen_run.yaml"
-    worldgen_seed_offset: int = 0
-    tree_radius_mean: float = 0.25
-    tree_radius_std: float = 0.05
-    tree_radius_min: float = 0.10
-    tree_radius_max: float = 0.60
+    worldgen_config_relpath: str
+    worldgen_seed_offset: int
+    tree_radius_mean: float
+    tree_radius_std: float
+    tree_radius_min: float
+    tree_radius_max: float
 
     # start / goal sampling
-    start_goal_clearance: float = 1.0
-    min_start_goal_distance: float = 8.0
-    spawn_max_attempts: int = 500
+    start_goal_clearance: float
+    min_start_goal_distance: float
+    spawn_max_attempts: int
 
 class ForestNavEnv(gym.Env):
     """ Environment as expected by SBR3 with a continous action space of (v, wz, vz)
@@ -125,6 +126,7 @@ class ForestNavEnv(gym.Env):
         # spatial grid for fast nearest-tree queries
         self._tree_grid: Optional[dict] = None
         self._tree_grid_cell_size = float(self.p.lidar_range_max) / 2.0
+        self._worldgen_generate_positions_fn = None
 
     @staticmethod
     def _project_root() -> Path:
@@ -251,15 +253,23 @@ class ForestNavEnv(gym.Env):
         yaw_rate_norm = abs(float(safe_wz)) / max(float(self.p.wz_max), 1e-6)
         reward -= self.p.reward_yaw_rate_scale * speed_norm * yaw_rate_norm
 
-        if (
-            speed_norm > self.p.yaw_penalty_speed_gate
-            and d_progress < self.p.progress_stall_threshold
-        ):
+        if d_progress < self.p.progress_stall_threshold and not success:
             stall_ratio = (self.p.progress_stall_threshold - d_progress) / max(
                 self.p.progress_stall_threshold,
                 1e-6,
             )
-            reward -= self.p.reward_stall_penalty * float(np.clip(stall_ratio, 0.0, 1.0))
+            stall_penalty = self.p.reward_stall_penalty * float(np.clip(stall_ratio, 0.0, 1.0))
+
+            if speed_norm < self.p.yaw_penalty_speed_gate:
+                low_speed_ratio = (self.p.yaw_penalty_speed_gate - speed_norm) / max(
+                    self.p.yaw_penalty_speed_gate,
+                    1e-6,
+                )
+                stall_penalty += 0.5 * self.p.reward_stall_penalty * float(
+                    np.clip(low_speed_ratio, 0.0, 1.0)
+                )
+
+            reward -= stall_penalty
 
         if min_range < self.p.r_safe:
             reward -= self.p.reward_proximity_scale * (self.p.r_safe - min_range) / self.p.r_safe # penalty for getting too close to obstacles
@@ -407,7 +417,7 @@ class ForestNavEnv(gym.Env):
             safe_vz = 0.0
             shield_active = 1
 
-        if shield_active and abs(safe_wz) > 0.0:
+        if shield_active and abs(safe_wz) > 0.0 and abs(safe_v) > 1e-3:
             damping = float(np.clip(self.p.shield_yaw_damping, 0.0, 1.0))
             safe_wz = safe_wz * (1.0 - damping)
 
@@ -515,25 +525,8 @@ class ForestNavEnv(gym.Env):
         """
         # Try package import first; if this file is run directly, ensure project paths
         # are available so worldgen can still be imported.
-        module = None
-        for module_name in (
-            "worldgen.forest_worldgen.generate_world",
-            "forest_worldgen.generate_world",
-        ):
-            try:
-                module = importlib.import_module(module_name)
-                break
-            except ImportError:
-                continue
-
-        if module is None:
-            project_root = self._project_root()
-            candidate_paths = (project_root, project_root / "worldgen")
-            for path in candidate_paths:
-                path_str = str(path)
-                if path_str not in sys.path:
-                    sys.path.insert(0, path_str)
-
+        if self._worldgen_generate_positions_fn is None:
+            module = None
             for module_name in (
                 "worldgen.forest_worldgen.generate_world",
                 "forest_worldgen.generate_world",
@@ -544,14 +537,34 @@ class ForestNavEnv(gym.Env):
                 except ImportError:
                     continue
 
-        if module is None:
-            raise ImportError(
-                "Could not import world generator module. Tried "
-                "'worldgen.forest_worldgen.generate_world' and "
-                "'forest_worldgen.generate_world'."
-            )
+            if module is None:
+                project_root = self._project_root()
+                candidate_paths = (project_root, project_root / "worldgen")
+                for path in candidate_paths:
+                    path_str = str(path)
+                    if path_str not in sys.path:
+                        sys.path.insert(0, path_str)
 
-        generate_positions_from_config = getattr(module, "generate_positions_from_config")
+                for module_name in (
+                    "worldgen.forest_worldgen.generate_world",
+                    "forest_worldgen.generate_world",
+                ):
+                    try:
+                        module = importlib.import_module(module_name)
+                        break
+                    except ImportError:
+                        continue
+
+            if module is None:
+                raise ImportError(
+                    "Could not import world generator module. Tried "
+                    "'worldgen.forest_worldgen.generate_world' and "
+                    "'forest_worldgen.generate_world'."
+                )
+
+            self._worldgen_generate_positions_fn = getattr(module, "generate_positions_from_config")
+
+        generate_positions_from_config = self._worldgen_generate_positions_fn
 
         config_path = self._worldgen_config_path()
         if not config_path.exists():
@@ -637,6 +650,19 @@ class ForestNavEnv(gym.Env):
         return np.array([fallback[0], fallback[1], self.p.default_z_target], dtype=np.float32)
     
 if __name__ == "__main__":
-    params = SimParams()
+    # Minimal test params - for real usage, load from sac.yaml via utils.build_env_params
+    params = SimParams(
+        dt=0.1, lidar_num_beams=180, lidar_range_max=30.0, v_max=6.0, wz_max=2.5, vz_max=2.0,
+        r_safe=0.6, episode_seconds=30.0, goal_tolerance=0.5, world_radius=20.0,
+        collision_threshold=0.05, default_z_target=2.0, z_error_scale=5.0,
+        reward_progress_scale=2.0, reward_speed_scale=0.02, reward_step_penalty=0.02,
+        reward_proximity_scale=0.2, reward_shield_penalty=0.02, reward_collision_penalty=5.0,
+        reward_success_bonus=5.0, reward_truncation_penalty=1.0, reward_yaw_rate_scale=0.03,
+        reward_stall_penalty=0.05, progress_stall_threshold=0.02, yaw_penalty_speed_gate=0.25,
+        shield_floor_z_min=0.05, shield_yaw_damping=0.35,
+        worldgen_config_relpath="configs/worldgen/worldgen_run.yaml", worldgen_seed_offset=0,
+        tree_radius_mean=0.25, tree_radius_std=0.05, tree_radius_min=0.10, tree_radius_max=0.60,
+        start_goal_clearance=1.0, min_start_goal_distance=8.0, spawn_max_attempts=500
+    )
     env = ForestNavEnv(params)
     check_env(env, warn=True)

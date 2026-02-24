@@ -1,4 +1,4 @@
-.PHONY: setup verify worldgen worldgen-run rl-train rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
+.PHONY: setup verify worldgen worldgen-run rl-train rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
@@ -17,6 +17,7 @@ help:
 	@echo "  worldgen    - Generate a forest world with seed 42"
 	@echo "  worldgen-run - Generate world and launch Gazebo"
 	@echo "  rl-train    - Train SAC policy (override RL_CONFIG=... DEVICE=...)"
+	@echo "  rl-eval     - Evaluate trained policy (requires MODEL=...)"
 	@echo "  rl-tensorboard - Launch TensorBoard on outputs/runs (override TB_PORT=...)"
 	@echo "  rl-visualize - Build single-run report (latest if RUN is empty)"
 	@echo "  rl-compare  - Build multi-run comparison report"
@@ -32,7 +33,8 @@ setup:
 	$(PIP) install -e worldgen
 	$(PIP) install -e src/fastsim_forest_nav
 	$(PIP) install -e src/forest_nav_rl
-	@echo "✓ Setup complete. Use '$(PYTHON)' or activate .venv"
+	source .venv/bin/activate
+	@echo "Setup complete. Use '$(PYTHON)' or activate .venv"
 
 verify:
 	@echo "Verifying environment..."
@@ -57,6 +59,20 @@ rl-train:
 		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG); \
 	fi
 
+rl-eval:
+	@if [ -z "$(MODEL)" ]; then \
+		echo "Error: MODEL is required. Usage: make rl-eval MODEL=path/to/model.zip"; \
+		exit 1; \
+	fi
+	@MODEL_CONFIG="$$(dirname "$(MODEL)")/../config_used.yaml"; \
+	if [ -f "$$MODEL_CONFIG" ]; then \
+		$(PYTHON) -m forest_nav_rl.eval_policy --model "$(MODEL)" --config "$$MODEL_CONFIG" --num-episodes $(NUM_EPISODES) --deterministic; \
+	elif [ -n "$(RL_CONFIG)" ] && [ -f "$(RL_CONFIG)" ]; then \
+		$(PYTHON) -m forest_nav_rl.eval_policy --model "$(MODEL)" --config "$(RL_CONFIG)" --num-episodes $(NUM_EPISODES) --deterministic; \
+	else \
+		$(PYTHON) -m forest_nav_rl.eval_policy --model "$(MODEL)" --num-episodes $(NUM_EPISODES) --deterministic; \
+	fi
+
 rl-tensorboard:
 	$(PYTHON) -m tensorboard.main --logdir outputs/runs --port $(TB_PORT)
 
@@ -75,7 +91,10 @@ rl-trajectories:
 		echo "Error: MODEL is required. Usage: make rl-trajectories MODEL=path/to/model.zip"; \
 		exit 1; \
 	fi
-	@if [ -n "$(RL_CONFIG)" ] && [ -f "$(RL_CONFIG)" ]; then \
+	@MODEL_CONFIG="$$(dirname "$(MODEL)")/../config_used.yaml"; \
+	if [ -f "$$MODEL_CONFIG" ]; then \
+		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --config "$$MODEL_CONFIG" --num-episodes $(NUM_EPISODES); \
+	elif [ -n "$(RL_CONFIG)" ] && [ -f "$(RL_CONFIG)" ]; then \
 		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --config "$(RL_CONFIG)" --num-episodes $(NUM_EPISODES); \
 	else \
 		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --num-episodes $(NUM_EPISODES); \
