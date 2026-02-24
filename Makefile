@@ -1,4 +1,4 @@
-.PHONY: setup verify worldgen worldgen-run rl-train rl-tensorboard rl-visualize rl-compare rl-trajectories clean help
+.PHONY: setup verify worldgen worldgen-run rl-train rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
@@ -21,6 +21,7 @@ help:
 	@echo "  rl-visualize - Build single-run report (latest if RUN is empty)"
 	@echo "  rl-compare  - Build multi-run comparison report"
 	@echo "  rl-trajectories - Visualize agent trajectories (requires MODEL=...)"
+	@echo "  rl-gazebo-demo - Launch Gazebo, run demo with latest model (override MODEL=... NUM_EPISODES=...)"
 	@echo "  clean       - Remove venv, caches, and generated outputs"
 	@echo "  help        - Show this help message"
 
@@ -79,6 +80,9 @@ rl-trajectories:
 	else \
 		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --num-episodes $(NUM_EPISODES); \
 	fi
+
+rl-gazebo-demo:
+	./scripts/rl/gazebo_demo.sh 42 "$(MODEL)" $(NUM_EPISODES)
 
 clean:
 	rm -rf .venv

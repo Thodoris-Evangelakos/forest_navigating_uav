@@ -2,13 +2,13 @@ experiment:
   name: sac_fastsim
   runs_dir: outputs/runs
   seed: 42
-  total_timesteps: 10_000_000
+  total_timesteps: 3_000_000
 
 env:
   env_kwargs:
     params:
       dt: 0.1
-      lidar_num_beams: 180
+      lidar_num_beams: 90   # fewer beams = faster CPU stepping
       lidar_range_max: 30.0
       v_max: 6.0
       wz_max: 2.5
@@ -21,13 +21,18 @@ env:
       default_z_target: 2.0
       z_error_scale: 5.0
       reward_progress_scale: 2.0
-      reward_speed_scale: 0.05
-      reward_step_penalty: 0.01
+      reward_speed_scale: 0.02
+      reward_step_penalty: 0.02
       reward_proximity_scale: 0.2
       reward_shield_penalty: 0.02
       reward_collision_penalty: 5.0
       reward_success_bonus: 5.0
-      reward_truncation_penalty: 0.0
+      reward_truncation_penalty: 1.0
+      reward_yaw_rate_scale: 0.03
+      reward_stall_penalty: 0.05
+      progress_stall_threshold: 0.02
+      yaw_penalty_speed_gate: 0.25
+      shield_yaw_damping: 0.35
       shield_floor_z_min: 0.05
       worldgen_config_relpath: configs/worldgen/worldgen_run.yaml
       worldgen_seed_offset: 0
@@ -40,8 +45,9 @@ env:
       spawn_max_attempts: 500
 
 training:
-  n_envs: 8
-  checkpoint_freq_step: 10000
+  n_envs: 16
+  checkpoint_freq_step: 50000  # less frequent checkpointing
+  save_replay_buffer: false    # skip heavy replay buffer serialization in checkpoints
   norm:
     enabled: true
     norm_obs: true
@@ -50,23 +56,23 @@ training:
     clip_reward: 10.0
 
 logging:
-  eval_freq_step: 20000
-  n_eval_episodes: 10
+  eval_freq_step: 50000   # less frequent eval
+  n_eval_episodes: 5      # fewer eval episodes
 
 sac:
   policy: MlpPolicy
   learning_rate: 0.0003
   buffer_size: 1000000
   learning_starts: 10000
-  batch_size: 256
+  batch_size: 1024         # larger batches for better GPU utilization
   tau: 0.005
   gamma: 0.99
-  train_freq: 1
-  gradient_steps: -1
+  train_freq: 4            # collect 4 steps before updating
+  gradient_steps: 4        # 4 gradient steps per train_freq
   ent_coef: auto
   target_update_interval: 1
   verbose: 1
   policy_kwargs:
-    net_arch: [256, 256]
+    net_arch: [512, 512]   # larger network for more GPU work
 
 save_vecnorm: false

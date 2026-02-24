@@ -11,7 +11,7 @@ from stable_baselines3 import SAC
 from stable_baselines3.common.env_util import make_vec_env
 from stable_baselines3.common.env_checker import check_env
 from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
-from stable_baselines3.common.vec_env import VecNormalize
+from stable_baselines3.common.vec_env import VecNormalize, SubprocVecEnv
 
 from forest_nav_rl.utils import build_env_ctor_and_kwargs, get_env_backend
 
@@ -109,13 +109,17 @@ def make_run_dir(base_dir: str | Path, exp_name: str) -> Path:
 def build_vec_env(env_cfg: dict[str, Any], n_envs: int, seed: int, monitor_dir: str):
     env_ctor, env_kwargs = build_env_ctor_and_kwargs(env_cfg)
 
+    # Use SubprocVecEnv for parallel stepping (better CPU utilization)
+    vec_env_cls = SubprocVecEnv if n_envs > 1 else None
+
     venv = make_vec_env(
         env_ctor,
         n_envs = n_envs,
         seed = seed,
         monitor_dir=monitor_dir,
         monitor_kwargs={"info_keywords": MONITOR_INFO_KEYS},
-        env_kwargs=env_kwargs
+        env_kwargs=env_kwargs,
+        vec_env_cls=vec_env_cls
     )
 
     return venv
@@ -146,6 +150,11 @@ def main():
 
     cfg = load_yaml(args.config)
     backend = get_env_backend(cfg["env"])
+    if backend == "gazebo":
+        raise ValueError(
+            "Gazebo backend is for demonstration only; training is not supported. "
+            "Use fastsim for training and gazebo for rollout/visualization."
+        )
 
     exp_name = cfg["experiment"]["name"]
     base_runs_dir = cfg["experiment"]["runs_dir"]
@@ -208,11 +217,14 @@ def main():
     else:
         save_vecnormalize = bool(save_vecnorm_cfg)
 
+    # Allow disabling replay buffer saves in checkpoints (heavy I/O)
+    save_replay_buffer = cfg["training"].get("save_replay_buffer", True)
+
     checkpoint_cb = CheckpointCallback(
         save_freq=save_freq,
         save_path=str(run_dir / "checkpoints"),
         name_prefix="sac_checkpoint",
-        save_replay_buffer=True,
+        save_replay_buffer=save_replay_buffer,
         save_vecnormalize=save_vecnormalize
     )
 

@@ -99,5 +99,20 @@
       <publish_nested_model_pose>true</publish_nested_model_pose>
     </plugin>
 
+    <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::v8::systems::OdometryPublisher">
+      <odom_publish_frequency>50</odom_publish_frequency>
+      <odom_topic>odom</odom_topic>
+      <tf_topic>tf</tf_topic>
+    </plugin>
+
+    <plugin filename="gz-sim-velocity-control-system" name="gz::sim::v8::systems::VelocityControl">
+      <initial_linear_velocity_x>0.0</initial_linear_velocity_x>
+      <initial_linear_velocity_y>0.0</initial_linear_velocity_y>
+      <initial_linear_velocity_z>0.0</initial_linear_velocity_z>
+      <initial_angular_velocity_x>0.0</initial_angular_velocity_x>
+      <initial_angular_velocity_y>0.0</initial_angular_velocity_y>
+      <initial_angular_velocity_z>0.0</initial_angular_velocity_z>
+    </plugin>
+
   </model>
 </sdf>

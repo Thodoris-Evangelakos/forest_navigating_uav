@@ -40,9 +40,14 @@ class SimParams:
     reward_collision_penalty: float = 5.0
     reward_success_bonus: float = 5.0
     reward_truncation_penalty: float = 0.0
+    reward_yaw_rate_scale: float = 0.0
+    reward_stall_penalty: float = 0.0
+    progress_stall_threshold: float = 0.0
+    yaw_penalty_speed_gate: float = 0.0
 
     # safety shield
     shield_floor_z_min: float = 0.05
+    shield_yaw_damping: float = 0.0
 
     # world generation for fastsim (pure in-memory)
     worldgen_config_relpath: str = "configs/worldgen/worldgen_run.yaml"
@@ -87,6 +92,10 @@ class ForestNavEnv(gym.Env):
 
         self._t = 0.0
         self._step_count = 0
+
+        # Cached lidar scan to avoid recomputation
+        self._cached_lidar: np.ndarray | None = None
+        self._cached_min_range: float = float('inf')
 
         # State example
         self.pos = np.zeros(3, dtype=np.float32)  # x, y, z. Will probably rip it from the sim/gz directly for now
@@ -219,6 +228,9 @@ class ForestNavEnv(gym.Env):
 
         # sensor update
         lidar = self._lidar_scan()
+        self._cached_lidar = lidar
+        min_range = float(np.min(lidar))
+        self._cached_min_range = min_range
 
         # reward and termination
         dist = self._dist_to_goal()
@@ -226,7 +238,6 @@ class ForestNavEnv(gym.Env):
         d_progress = prev_dist - dist
         self._prev_dist = dist
 
-        min_range = float(np.min(lidar))
         collision = int(min_range < self.p.collision_threshold)
         success = int(dist < self.p.goal_tolerance)
 
@@ -235,6 +246,20 @@ class ForestNavEnv(gym.Env):
         reward += self.p.reward_progress_scale * d_progress # encourage progress towards goal
         reward += self.p.reward_speed_scale * (safe_v / self.p.v_max) # encourage faster speeds
         reward -= self.p.reward_step_penalty # small penalty for each step to encourage faster completion
+
+        speed_norm = abs(float(safe_v)) / max(float(self.p.v_max), 1e-6)
+        yaw_rate_norm = abs(float(safe_wz)) / max(float(self.p.wz_max), 1e-6)
+        reward -= self.p.reward_yaw_rate_scale * speed_norm * yaw_rate_norm
+
+        if (
+            speed_norm > self.p.yaw_penalty_speed_gate
+            and d_progress < self.p.progress_stall_threshold
+        ):
+            stall_ratio = (self.p.progress_stall_threshold - d_progress) / max(
+                self.p.progress_stall_threshold,
+                1e-6,
+            )
+            reward -= self.p.reward_stall_penalty * float(np.clip(stall_ratio, 0.0, 1.0))
 
         if min_range < self.p.r_safe:
             reward -= self.p.reward_proximity_scale * (self.p.r_safe - min_range) / self.p.r_safe # penalty for getting too close to obstacles
@@ -303,9 +328,11 @@ class ForestNavEnv(gym.Env):
         return obs
     
     def _get_info (self, **kwargs) -> dict[str, Any]:
+        # Use cached values from step() to avoid recomputation
+        min_range = self._cached_min_range if self._cached_lidar is not None else float(np.min(self._lidar_scan()))
         info = {
             "dist_to_goal": float(self._dist_to_goal()),
-            "min_range": float(np.min(self._lidar_scan())),
+            "min_range": min_range,
             "tree_count": int(0 if self.trees is None else len(self.trees)),
             "worldgen_seed": int(self._last_worldgen_seed) if self._last_worldgen_seed is not None else None,
         }
@@ -379,6 +406,10 @@ class ForestNavEnv(gym.Env):
         if float(self.pos[2]) <= self.p.shield_floor_z_min and safe_vz < 0.0:
             safe_vz = 0.0
             shield_active = 1
+
+        if shield_active and abs(safe_wz) > 0.0:
+            damping = float(np.clip(self.p.shield_yaw_damping, 0.0, 1.0))
+            safe_wz = safe_wz * (1.0 - damping)
 
         # normalised intervention magnitude
         cmd_norm = abs(v) + abs(wz) + abs(vz)

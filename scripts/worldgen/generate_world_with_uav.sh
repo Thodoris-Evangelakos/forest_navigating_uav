@@ -83,7 +83,7 @@ echo ""
 # Step 2: Launch Gazebo
 echo "[2/3] Launching Gazebo..."
 echo "Starting Gazebo in background..."
-gz sim "$LATEST_WORLD" &
+gz sim -r "$LATEST_WORLD" &
 GZ_PID=$!
 
 # Wait for Gazebo to initialize
@@ -94,6 +94,23 @@ sleep 10
 if ! ps -p $GZ_PID > /dev/null; then
     echo "Error: Gazebo failed to start!"
     exit 1
+fi
+
+WORLD_NAME=$(python3 -c "
+import re
+with open('$LATEST_WORLD', 'r') as f:
+    content = f.read()
+match = re.search(r'<world name=\"([^\"]+)\">', content)
+print(match.group(1) if match else 'randomized_world')
+")
+
+if command -v gz &> /dev/null; then
+    echo "Ensuring Gazebo is unpaused..."
+    gz service -s "/world/${WORLD_NAME}/control" \
+        --reqtype gz.msgs.WorldControl \
+        --reptype gz.msgs.Boolean \
+        --timeout 3000 \
+        --req 'pause: false' >/tmp/gz_unpause.log 2>&1 || true
 fi
 
 echo ""

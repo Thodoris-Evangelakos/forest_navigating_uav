@@ -16,13 +16,7 @@ pip install -e src/fastsim_forest_nav -e src/forest_nav_rl
 forest-nav-train-sac --config configs/training/sac.yaml
 ```
 
-Gazebo backend:
-
-```bash
-forest-nav-train-sac --config configs/training/sac_gazebo.yaml
-```
-
-`env.backend` in config chooses `fastsim` or `gazebo`.
+`env.backend` in config chooses `fastsim` or `gazebo`. Gazebo is for demonstration/rollouts only.
 
 Outputs are saved under `outputs/runs/<experiment_name>_<id>/`.
 

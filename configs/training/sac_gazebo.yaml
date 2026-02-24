@@ -1,3 +1,4 @@
+# Demo-only Gazebo config (rollouts/visualization). Training is not supported in Gazebo.
 experiment:
   name: sac_gazebo
   runs_dir: outputs/runs

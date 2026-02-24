@@ -88,11 +88,7 @@ From repository root (uses `.venv` tools via Makefile):
 	make rl-train RL_CONFIG=configs/training/sac.yaml DEVICE=cuda
 	```
 
-- Train SAC in Gazebo backend (ROS2 + Gazebo running):
-
-	```bash
-	make rl-train RL_CONFIG=configs/training/sac_gazebo.yaml
-	```
+Gazebo is for demonstration/rollouts only; training is supported in fastsim.
 
 - Launch TensorBoard for runs:
 
@@ -124,7 +120,7 @@ From repository root (uses `.venv` tools via Makefile):
 	make rl-trajectories MODEL=outputs/runs/sac_fastsim_005/final/sac_final_model.zip
 	```
 
-	Gazebo backend (from config):
+	Gazebo backend (for demo rollouts only):
 
 	```bash
 	make rl-trajectories MODEL=outputs/runs/sac_gazebo_001/final/sac_final_model.zip RL_CONFIG=configs/training/sac_gazebo.yaml
