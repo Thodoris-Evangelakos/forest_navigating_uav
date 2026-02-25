@@ -24,6 +24,7 @@ MONITOR_INFO_KEYS = (
     "collision",
     "shield_active",
     "shield_delta",
+    "accel_clipped",
     "min_range",
     "dist_to_goal",
 )
@@ -38,7 +39,7 @@ class SafetyMetricsCallback(BaseCallback):
     def _on_step(self) -> bool:
         infos = self.locals.get("infos", [])
         for info in infos:
-            for key in ("success", "collision", "shield_active", "shield_delta", "min_range", "dist_to_goal"):
+            for key in ("success", "collision", "shield_active", "shield_delta", "accel_clipped", "min_range", "dist_to_goal"):
                 value = info.get(key)
                 if value is None:
                     continue
@@ -206,6 +207,19 @@ def main():
         raise ValueError(
             "Gazebo backend is for demonstration only; training is not supported. "
             "Use fastsim for training and gazebo for rollout/visualization."
+        )
+
+    # Enforce hybrid control mode for all new training runs.
+    # Legacy 'velocity' mode is permitted for evaluation of old checkpoints only.
+    _raw_params = cfg.get("env", {}).get("env_kwargs", {}).get("params", {})
+    _action_mode = _raw_params.get("action_mode", "velocity")
+    if _action_mode != "hybrid":
+        raise ValueError(
+            f"Training requires action_mode='hybrid' in env.env_kwargs.params "
+            f"(got '{_action_mode}'). "
+            "Set `action_mode: hybrid` in your training config. "
+            "The legacy 'velocity' mode is only supported when evaluating "
+            "checkpoints trained before this change."
         )
 
     exp_name = cfg["experiment"]["name"]

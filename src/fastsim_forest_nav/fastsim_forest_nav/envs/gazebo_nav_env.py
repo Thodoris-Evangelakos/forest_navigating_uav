@@ -9,24 +9,31 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from fastsim_forest_nav.envs.forest_nav_env import SimParams
+from fastsim_forest_nav.envs.forest_nav_env import SimParams, _accel_limit_velocity
 
 
 @dataclass
 class GazeboParams(SimParams):
-    """Gazebo-specific parameters - all values must come from config."""
-    odom_topic: str
-    scan_topic: str
-    cmd_vel_topic: str
-    use_sim_reset_service: bool
-    reset_service_name: str
-    spin_timeout_sec: float
-    settle_time_sec: float
-    fixed_goal: list[float]
-    randomize_goal_on_reset: bool
-    lidar_min_valid_range: float
-    shield_front_arc_deg: float
-    shield_ttc_threshold_sec: float
+    """Gazebo-specific parameters - all values must come from config.
+
+    All fields carry sensible defaults so that Python's dataclass inheritance
+    rules are satisfied (SimParams gains optional fields with defaults at the
+    end; child-class fields without defaults are not permitted after them).
+    The defaults here match the values in sac_gazebo.yaml and serve as
+    documentation; they should always be explicitly set via that config.
+    """
+    odom_topic: str = "/odom"
+    scan_topic: str = "/scan"
+    cmd_vel_topic: str = "/cmd_vel"
+    use_sim_reset_service: bool = False
+    reset_service_name: str = "/reset_simulation"
+    spin_timeout_sec: float = 2.0
+    settle_time_sec: float = 0.05
+    fixed_goal: list = field(default_factory=lambda: [8.0, 0.0, 2.0])
+    randomize_goal_on_reset: bool = False
+    lidar_min_valid_range: float = 0.03
+    shield_front_arc_deg: float = 55.0
+    shield_ttc_threshold_sec: float = 0.75
 
 
 class GazeboForestNavEnv(gym.Env):
@@ -62,6 +69,12 @@ class GazeboForestNavEnv(gym.Env):
         self._have_scan = False
         self._have_odom = False
 
+        # odometry twist feedback (used by hybrid dynamics to measure applied velocity)
+        self._odom_v = np.float32(0.0)
+        self._odom_wz = np.float32(0.0)
+        self._odom_vz = np.float32(0.0)
+        self._have_odom_twist = False
+
         self._ros = self._init_ros_interfaces()
 
     def _init_ros_interfaces(self) -> dict[str, Any]:
@@ -92,6 +105,13 @@ class GazeboForestNavEnv(gym.Env):
 
                 q = msg.pose.pose.orientation
                 self.yaw = np.float32(math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+
+                # capture twist for hybrid dynamics feedback
+                self._odom_v = np.float32(msg.twist.twist.linear.x)
+                self._odom_wz = np.float32(msg.twist.twist.angular.z)
+                self._odom_vz = np.float32(msg.twist.twist.linear.z)
+                self._have_odom_twist = True
+
                 self._have_odom = True
 
             def scan_callback(msg: LaserScan) -> None:
@@ -348,6 +368,7 @@ class GazeboForestNavEnv(gym.Env):
         self.v = np.float32(0.0)
         self.wz = np.float32(0.0)
         self.vz = np.float32(0.0)
+        self._have_odom_twist = False  # discard stale twist until first post-reset odom arrives
         self._publish_cmd(0.0, 0.0, 0.0)
 
         self._prev_dist = self._dist_to_goal()
@@ -372,12 +393,29 @@ class GazeboForestNavEnv(gym.Env):
             lidar_angles,
         )
 
-        self._publish_cmd(float(safe_v), float(safe_wz), float(safe_vz))
-        self.v = np.float32(safe_v)
-        self.wz = np.float32(safe_wz)
-        self.vz = np.float32(safe_vz)
+        # hybrid dynamics: rate-limit velocity command using stored state before publish
+        if self.p.action_mode == "hybrid":
+            applied_v, clip_v = _accel_limit_velocity(safe_v, self.v, self.p.accel_v_max, self.p.dt)
+            applied_wz, clip_wz = _accel_limit_velocity(safe_wz, self.wz, self.p.accel_wz_max, self.p.dt)
+            applied_vz, clip_vz = _accel_limit_velocity(safe_vz, self.vz, self.p.accel_vz_max, self.p.dt)
+            accel_clipped = int(clip_v or clip_wz or clip_vz)
+        else:
+            applied_v, applied_wz, applied_vz = float(safe_v), float(safe_wz), float(safe_vz)
+            accel_clipped = 0
+
+        self._publish_cmd(applied_v, applied_wz, applied_vz)
+        # optimistic model-based state; will be overridden by odom feedback below
+        self.v = np.float32(applied_v)
+        self.wz = np.float32(applied_wz)
+        self.vz = np.float32(applied_vz)
 
         self._spin_for(self.p.dt)
+
+        # update velocity state from odometry feedback (closes sim-to-real loop)
+        if self._have_odom_twist:
+            self.v = self._odom_v
+            self.wz = self._odom_wz
+            self.vz = self._odom_vz
 
         lidar_ranges, _ = self._resample_lidar()
 
@@ -392,7 +430,7 @@ class GazeboForestNavEnv(gym.Env):
 
         reward = 0.0
         reward += self.p.reward_progress_scale * d_progress
-        reward += self.p.reward_speed_scale * (safe_v / self.p.v_max)
+        reward += self.p.reward_speed_scale * (float(self.v) / self.p.v_max)  # use measured/applied velocity
         reward -= self.p.reward_step_penalty
 
         if min_range < self.p.r_safe:
@@ -418,6 +456,7 @@ class GazeboForestNavEnv(gym.Env):
             collision=collision,
             success=success,
             shield_delta=shield_delta,
+            accel_clipped=accel_clipped,
         )
         return obs, float(reward), terminated, truncated, info
 

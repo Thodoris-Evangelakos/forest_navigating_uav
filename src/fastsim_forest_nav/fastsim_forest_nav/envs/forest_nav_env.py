@@ -1,5 +1,5 @@
 #from __future__ import annotations
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Optional, Tuple
 from pathlib import Path
 import importlib
@@ -63,6 +63,35 @@ class SimParams:
     start_goal_clearance: float
     min_start_goal_distance: float
     spawn_max_attempts: int
+
+    # dynamics control mode
+    # "velocity" = legacy direct assignment (backward-compat for old checkpoints/eval)
+    # "hybrid"   = first-order acceleration limiting (use for all new training)
+    action_mode: str = field(default="velocity")
+    accel_v_max: float = field(default=3.0)   # m/s²  – max forward/backward accel
+    accel_wz_max: float = field(default=2.0)  # rad/s² – max yaw accel
+    accel_vz_max: float = field(default=1.5)  # m/s²  – max vertical accel
+
+
+def _accel_limit_velocity(
+    desired: float,
+    current: float,
+    accel_max: float,
+    dt: float,
+) -> tuple:
+    """Rate-limit a velocity setpoint with an acceleration constraint.
+
+    Returns (applied_velocity, was_clipped).
+    When accel_max <= 0 the setpoint is passed through unchanged.
+    """
+    if accel_max <= 0.0:
+        return float(desired), False
+    max_delta = accel_max * dt
+    delta = float(desired) - float(current)
+    clipped = abs(delta) > max_delta
+    applied = float(current) + float(np.clip(delta, -max_delta, max_delta))
+    return applied, clipped
+
 
 class ForestNavEnv(gym.Env):
     """ Environment as expected by SBR3 with a continous action space of (v, wz, vz)
@@ -226,8 +255,23 @@ class ForestNavEnv(gym.Env):
             cmd_v, cmd_wz, cmd_vz
         )
 
+        # hybrid dynamics: rate-limit velocity change using stored state
+        if self.p.action_mode == "hybrid":
+            applied_v, clip_v = _accel_limit_velocity(safe_v, self.v, self.p.accel_v_max, self.p.dt)
+            applied_wz, clip_wz = _accel_limit_velocity(safe_wz, self.wz, self.p.accel_wz_max, self.p.dt)
+            applied_vz, clip_vz = _accel_limit_velocity(safe_vz, self.vz, self.p.accel_vz_max, self.p.dt)
+            accel_clipped = int(clip_v or clip_wz or clip_vz)
+            self.v = np.float32(applied_v)
+            self.wz = np.float32(applied_wz)
+            self.vz = np.float32(applied_vz)
+        else:
+            applied_v = float(safe_v)
+            applied_wz = float(safe_wz)
+            applied_vz = float(safe_vz)
+            accel_clipped = 0
+
         # integrate simple kinematics (fastsim)
-        self._integrate(safe_v, safe_wz, safe_vz)
+        self._integrate(np.float32(applied_v), np.float32(applied_wz), np.float32(applied_vz))
 
         # sensor update
         lidar = self._lidar_scan()
@@ -247,11 +291,11 @@ class ForestNavEnv(gym.Env):
         # Weights saved in the dataclass
         reward = 0.0
         reward += self.p.reward_progress_scale * d_progress # encourage progress towards goal
-        reward += self.p.reward_speed_scale * (safe_v / self.p.v_max) # encourage faster speeds
+        reward += self.p.reward_speed_scale * (applied_v / self.p.v_max) # encourage faster speeds
         reward -= self.p.reward_step_penalty # small penalty for each step to encourage faster completion
 
-        speed_norm = abs(float(safe_v)) / max(float(self.p.v_max), 1e-6)
-        yaw_rate_norm = abs(float(safe_wz)) / max(float(self.p.wz_max), 1e-6)
+        speed_norm = abs(float(applied_v)) / max(float(self.p.v_max), 1e-6)
+        yaw_rate_norm = abs(float(applied_wz)) / max(float(self.p.wz_max), 1e-6)
         reward -= self.p.reward_yaw_rate_scale * speed_norm * yaw_rate_norm
 
         if d_progress < self.p.progress_stall_threshold and not success:
@@ -289,12 +333,13 @@ class ForestNavEnv(gym.Env):
         if truncated and not terminated:
             reward -= self.p.reward_truncation_penalty
 
-        obs = self._pack_obs(lidar, dist, safe_v, safe_wz) # purposefully not including vz
+        obs = self._pack_obs(lidar, dist, np.float32(applied_v), np.float32(applied_wz)) # purposefully not including vz
         info = self._get_info(
-            shield_active = shield_active,
-            collision = collision,
-            success = success,
-            shield_delta = shield_delta
+            shield_active=shield_active,
+            collision=collision,
+            success=success,
+            shield_delta=shield_delta,
+            accel_clipped=accel_clipped,
         )
         return obs, float(reward), terminated, truncated, info
     

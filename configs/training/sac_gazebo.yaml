@@ -53,6 +53,12 @@ env:
       min_start_goal_distance: 8.0
       spawn_max_attempts: 500
 
+      # dynamics control mode: mirror the fastsim hybrid settings for parity.
+      action_mode: hybrid
+      accel_v_max: 3.0    # m/s²
+      accel_wz_max: 2.0   # rad/s²
+      accel_vz_max: 1.5   # m/s²
+
 training:
   n_envs: 1
   checkpoint_freq_step: 10000

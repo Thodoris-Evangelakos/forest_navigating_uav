@@ -2,7 +2,7 @@ experiment:
   name: sac_fastsim
   runs_dir: outputs/runs
   seed: 42
-  total_timesteps: 5_000_000
+  total_timesteps: 10_000_000
 
 env:
   env_kwargs:
@@ -22,11 +22,11 @@ env:
       z_error_scale: 5.0
 
       reward_progress_scale: 5.0
-      reward_speed_scale: 0.05
+      reward_speed_scale: 0.02
       reward_step_penalty: 0.02
-      reward_proximity_scale: 0.2
+      reward_proximity_scale: 0.8
       reward_shield_penalty: 0.02
-      reward_collision_penalty: 5.0
+      reward_collision_penalty: 50.0
       reward_success_bonus: 20.0
       reward_truncation_penalty: 8.0
       reward_yaw_rate_scale: 0.03
@@ -35,7 +35,7 @@ env:
       progress_stall_threshold: 0.02
       yaw_penalty_speed_gate: 0.25
       shield_yaw_damping: 0.35
-      shield_lookahead_margin: 2.0
+      shield_lookahead_margin: 4.0
       shield_floor_z_min: 0.05
       worldgen_config_relpath: configs/worldgen/worldgen_run.yaml
       worldgen_seed_offset: 0
@@ -46,6 +46,14 @@ env:
       start_goal_clearance: 0.6
       min_start_goal_distance: 8.0
       spawn_max_attempts: 500
+
+      # dynamics control mode: "hybrid" applies acceleration limits before integration
+      # so the policy must plan a smooth velocity trajectory (better sim-to-real transfer).
+      # Use "velocity" only when evaluating checkpoints trained before this change.
+      action_mode: hybrid
+      accel_v_max: 3.0    # m/s²: 0→6 m/s in 2 s (30 steps)
+      accel_wz_max: 2.0   # rad/s²: 0→2.5 rad/s in ~1.25 s
+      accel_vz_max: 1.5   # m/s²: 0→2 m/s in ~1.3 s
 
 training:
   n_envs: 16
