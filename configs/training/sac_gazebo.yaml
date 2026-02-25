@@ -21,6 +21,7 @@ env:
       episode_seconds: 30.0
       goal_tolerance: 0.5
       world_radius: 20.0
+      boundary_margin: 1.5
       collision_threshold: 0.18
       default_z_target: 2.0
       z_error_scale: 5.0

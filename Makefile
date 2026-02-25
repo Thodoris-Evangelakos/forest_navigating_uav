@@ -1,4 +1,4 @@
-.PHONY: setup verify worldgen worldgen-run rl-train rl-resume rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
+.PHONY: setup venv-rebuild verify worldgen worldgen-run rl-train rl-resume rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
@@ -14,6 +14,7 @@ help:
 	@echo ""
 	@echo "Targets:"
 	@echo "  setup       - Create venv and install all packages (editable + deps)"
+	@echo "  venv-rebuild - Recreate only .venv and reinstall packages"
 	@echo "  verify      - Test imports and environment setup"
 	@echo "  worldgen    - Generate a forest world with seed 42"
 	@echo "  worldgen-run - Generate world and launch Gazebo"
@@ -35,8 +36,11 @@ setup:
 	$(PIP) install -e worldgen
 	$(PIP) install -e src/fastsim_forest_nav
 	$(PIP) install -e src/forest_nav_rl
-	source .venv/bin/activate
 	@echo "Setup complete. Use '$(PYTHON)' or activate .venv"
+
+venv-rebuild:
+	rm -rf .venv
+	$(MAKE) setup
 
 verify:
 	@echo "Verifying environment..."

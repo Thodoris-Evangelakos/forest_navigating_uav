@@ -77,6 +77,50 @@ class GazeboForestNavEnv(gym.Env):
 
         self._ros = self._init_ros_interfaces()
 
+    def _effective_world_half_extent(self) -> float:
+        return max(1e-3, float(self._world_half_extent) - float(self.p.boundary_margin))
+
+    def _distance_to_world_boundary(self) -> float:
+        half = self._effective_world_half_extent()
+        dx = half - abs(float(self.pos[0]))
+        dy = half - abs(float(self.pos[1]))
+        return float(min(dx, dy))
+
+    def _distance_to_world_boundary_along_motion(self, signed_speed: float) -> float:
+        if abs(float(signed_speed)) <= 1e-9:
+            return float("inf")
+
+        half = self._effective_world_half_extent()
+        x = float(self.pos[0])
+        y = float(self.pos[1])
+
+        motion_sign = 1.0 if float(signed_speed) >= 0.0 else -1.0
+        dx = motion_sign * float(np.cos(float(self.yaw)))
+        dy = motion_sign * float(np.sin(float(self.yaw)))
+
+        candidates: list[float] = []
+        eps = 1e-9
+
+        if abs(dx) > eps:
+            wall_x = half if dx > 0.0 else -half
+            tx = (wall_x - x) / dx
+            if tx >= 0.0:
+                y_hit = y + tx * dy
+                if -half <= y_hit <= half:
+                    candidates.append(float(tx))
+
+        if abs(dy) > eps:
+            wall_y = half if dy > 0.0 else -half
+            ty = (wall_y - y) / dy
+            if ty >= 0.0:
+                x_hit = x + ty * dx
+                if -half <= x_hit <= half:
+                    candidates.append(float(ty))
+
+        if not candidates:
+            return float("inf")
+        return float(min(candidates))
+
     def _init_ros_interfaces(self) -> dict[str, Any]:
         try:
             import rclpy
@@ -267,6 +311,10 @@ class GazeboForestNavEnv(gym.Env):
         if np.any(front_mask) and safe_v > 0.0:
             front_min = float(np.min(lidar_ranges[front_mask]))
 
+            # also treat configured world boundary as virtual front obstacle
+            boundary_front = self._distance_to_world_boundary_along_motion(safe_v)
+            front_min = min(front_min, boundary_front)
+
             # limit speed so next step cannot penetrate safety radius
             v_clearance_cap = max(0.0, (front_min - self.p.r_safe) / max(self.p.dt, 1e-4))
 
@@ -290,9 +338,10 @@ class GazeboForestNavEnv(gym.Env):
 
     def _get_info(self, **kwargs) -> dict[str, Any]:
         lidar, _ = self._resample_lidar()
+        boundary_range = self._distance_to_world_boundary()
         info = {
             "dist_to_goal": float(self._dist_to_goal()),
-            "min_range": float(np.min(lidar)),
+            "min_range": float(min(float(np.min(lidar)), boundary_range)),
             "tree_count": 0,
             "worldgen_seed": None,
         }
@@ -424,7 +473,9 @@ class GazeboForestNavEnv(gym.Env):
         d_progress = prev_dist - dist
         self._prev_dist = dist
 
-        min_range = float(np.min(lidar_ranges))
+        tree_min_range = float(np.min(lidar_ranges))
+        boundary_range = self._distance_to_world_boundary()
+        min_range = float(min(tree_min_range, boundary_range))
         collision = int(min_range < self.p.collision_threshold)
         success = int(dist < self.p.goal_tolerance)
 

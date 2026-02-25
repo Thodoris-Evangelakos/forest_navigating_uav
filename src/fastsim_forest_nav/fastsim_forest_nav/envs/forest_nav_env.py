@@ -71,6 +71,7 @@ class SimParams:
     accel_v_max: float = field(default=3.0)   # m/s²  – max forward/backward accel
     accel_wz_max: float = field(default=2.0)  # rad/s² – max yaw accel
     accel_vz_max: float = field(default=1.5)  # m/s²  – max vertical accel
+    boundary_margin: float = field(default=1.0)  # virtual wall offset from world border
 
 
 def _accel_limit_velocity(
@@ -165,6 +166,51 @@ class ForestNavEnv(gym.Env):
     def _worldgen_config_path(self) -> Path:
         return self._project_root() / self.p.worldgen_config_relpath
 
+    def _effective_world_half_extent(self) -> float:
+        return max(1e-3, float(self._world_half_extent) - float(self.p.boundary_margin))
+
+    def _distance_to_world_boundary(self) -> float:
+        half = self._effective_world_half_extent()
+        dx = half - abs(float(self.pos[0]))
+        dy = half - abs(float(self.pos[1]))
+        return float(min(dx, dy))
+
+    def _distance_to_world_boundary_along_motion(self, signed_speed: float) -> float:
+        """Distance along signed body-x direction until hitting virtual boundary wall."""
+        if abs(float(signed_speed)) <= 1e-9:
+            return float("inf")
+
+        half = self._effective_world_half_extent()
+        x = float(self.pos[0])
+        y = float(self.pos[1])
+
+        motion_sign = 1.0 if float(signed_speed) >= 0.0 else -1.0
+        dx = motion_sign * float(np.cos(float(self.yaw)))
+        dy = motion_sign * float(np.sin(float(self.yaw)))
+
+        candidates: list[float] = []
+        eps = 1e-9
+
+        if abs(dx) > eps:
+            wall_x = half if dx > 0.0 else -half
+            tx = (wall_x - x) / dx
+            if tx >= 0.0:
+                y_hit = y + tx * dy
+                if -half <= y_hit <= half:
+                    candidates.append(float(tx))
+
+        if abs(dy) > eps:
+            wall_y = half if dy > 0.0 else -half
+            ty = (wall_y - y) / dy
+            if ty >= 0.0:
+                x_hit = x + ty * dx
+                if -half <= x_hit <= half:
+                    candidates.append(float(ty))
+
+        if not candidates:
+            return float("inf")
+        return float(min(candidates))
+
     def _build_tree_grid(self):
         """Build spatial hash grid for fast nearest-tree queries."""
         if self.trees is None or len(self.trees) == 0:
@@ -257,9 +303,9 @@ class ForestNavEnv(gym.Env):
 
         # hybrid dynamics: rate-limit velocity change using stored state
         if self.p.action_mode == "hybrid":
-            applied_v, clip_v = _accel_limit_velocity(safe_v, self.v, self.p.accel_v_max, self.p.dt)
-            applied_wz, clip_wz = _accel_limit_velocity(safe_wz, self.wz, self.p.accel_wz_max, self.p.dt)
-            applied_vz, clip_vz = _accel_limit_velocity(safe_vz, self.vz, self.p.accel_vz_max, self.p.dt)
+            applied_v, clip_v = _accel_limit_velocity(float(safe_v), float(self.v), self.p.accel_v_max, self.p.dt)
+            applied_wz, clip_wz = _accel_limit_velocity(float(safe_wz), float(self.wz), self.p.accel_wz_max, self.p.dt)
+            applied_vz, clip_vz = _accel_limit_velocity(float(safe_vz), float(self.vz), self.p.accel_vz_max, self.p.dt)
             accel_clipped = int(clip_v or clip_wz or clip_vz)
             self.v = np.float32(applied_v)
             self.wz = np.float32(applied_wz)
@@ -276,7 +322,9 @@ class ForestNavEnv(gym.Env):
         # sensor update
         lidar = self._lidar_scan()
         self._cached_lidar = lidar
-        min_range = float(np.min(lidar))
+        tree_min_range = float(np.min(lidar))
+        boundary_range = self._distance_to_world_boundary()
+        min_range = float(min(tree_min_range, boundary_range))
         self._cached_min_range = min_range
 
         # reward and termination
@@ -457,6 +505,20 @@ class ForestNavEnv(gym.Env):
                     if abs(safe_v) > v_max_safe:
                         safe_v = float(np.sign(safe_v)) * v_max_safe
                         shield_active = 1
+
+        # world boundary avoidance (virtual walls)
+        if abs(safe_v) > 1e-6:
+            dist_to_wall = self._distance_to_world_boundary_along_motion(safe_v)
+            gap = dist_to_wall - self.p.r_safe
+
+            if gap <= 0.0:
+                safe_v = 0.0
+                shield_active = 1
+            else:
+                v_max_safe = gap / max(self.p.dt, 1e-6)
+                if abs(safe_v) > v_max_safe:
+                    safe_v = float(np.sign(safe_v)) * v_max_safe
+                    shield_active = 1
 
         # vertical floor guard
         if float(self.pos[2]) <= self.p.shield_floor_z_min and safe_vz < 0.0:
