@@ -1,12 +1,15 @@
-.PHONY: setup venv-rebuild verify worldgen worldgen-run gazebo-world gazebo-spawn-uav gazebo-agent gazebo-stop rl-train rl-resume rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
+.PHONY: setup venv-rebuild ensure-venv verify check lint test package worldgen worldgen-run gazebo-world gazebo-spawn-uav gazebo-agent gazebo-stop rl-train rl-resume rl-eval rl-tensorboard rl-compare rl-trajectories rl-gazebo-demo clean-generated clean deep-clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
+VENV_STAMP := ./.venv/.project-root
 RL_CONFIG ?= configs/training/sac.yaml
 RESUME_CONFIG ?=
 TRAJ_CONFIG ?=
 RUN ?=
 TB_PORT ?= 6006
+TB_HOST ?= 127.0.0.1
+TB_LOGDIR ?= outputs/runs
 MODEL ?=
 NUM_EPISODES ?= 5
 DEVICE ?= cuda
@@ -20,9 +23,13 @@ help:
 	@echo "Forest Navigating UAV - Development Makefile"
 	@echo ""
 	@echo "Targets:"
-	@echo "  setup       - Create venv and install all packages (editable + deps)"
+	@echo "  setup       - Create/recreate venv and install all packages (editable + deps)"
 	@echo "  venv-rebuild - Recreate only .venv and reinstall packages"
 	@echo "  verify      - Test imports and environment setup"
+	@echo "  check       - Run lint + tests + import verification"
+	@echo "  lint        - Run Ruff checks on source packages"
+	@echo "  test        - Run pytest when tests exist"
+	@echo "  package     - Build wheel artifacts for subpackages into dist/"
 	@echo "  worldgen    - Generate a forest world with seed 42"
 	@echo "  worldgen-run - Generate world and launch Gazebo"
 	@echo "  gazebo-world - Generate world and launch Gazebo (WORLD_CONFIG=... WORLD_SEED=...)"
@@ -32,12 +39,14 @@ help:
 	@echo "  rl-train    - Train SAC policy (override RL_CONFIG=... DEVICE=...)"
 	@echo "  rl-resume   - Resume from run (override RUN=... RESUME_CONFIG=... DEVICE=...)"
 	@echo "  rl-eval     - Evaluate trained policy (requires MODEL=..., override DEVICE=...)"
-	@echo "  rl-tensorboard - Launch TensorBoard on outputs/runs (override TB_PORT=...)"
-	@echo "  rl-visualize - Build single-run report (latest if RUN is empty)"
+	@echo "  rl-tensorboard - Launch TensorBoard (override TB_LOGDIR=... TB_HOST=... TB_PORT=...)"
+	@echo "  rl-train auto-generates report/ on run end (including graceful Ctrl+C)"
 	@echo "  rl-compare  - Build multi-run comparison report"
 	@echo "  rl-trajectories - Visualize trajectories (MODEL=..., TRAJ_CONFIG=... optional, DEVICE=...)"
 	@echo "  rl-gazebo-demo - Launch Gazebo (paused by default), run demo (override MODEL=... NUM_EPISODES=... GAZEBO_PAUSED_START=0)"
-	@echo "  clean       - Remove venv, caches, and generated outputs"
+	@echo "  clean-generated - Remove caches, egg-info, and generated worldgen outputs"
+	@echo "  clean       - Alias to clean-generated"
+	@echo "  deep-clean  - Clean generated artifacts plus .venv and dist/"
 	@echo "  help        - Show this help message"
 
 setup:
@@ -47,13 +56,31 @@ setup:
 	$(PIP) install -e worldgen
 	$(PIP) install -e src/fastsim_forest_nav
 	$(PIP) install -e src/forest_nav_rl
+	@pwd -P > $(VENV_STAMP)
 	@echo "Setup complete. Use '$(PYTHON)' or activate .venv"
 
 venv-rebuild:
 	rm -rf .venv
 	$(MAKE) setup
 
-verify:
+ensure-venv:
+	@if [ ! -x "$(PYTHON)" ]; then \
+		echo "Error: .venv not found."; \
+		echo "Run 'make setup' first."; \
+		exit 1; \
+	fi
+	@CURRENT_ROOT="$$(pwd -P)"; \
+	if [ ! -f "$(VENV_STAMP)" ]; then \
+		echo "Error: missing venv relocation stamp ($(VENV_STAMP))."; \
+		echo "Run 'make setup' to (re)initialize the environment."; \
+		exit 1; \
+	elif [ "$$CURRENT_ROOT" != "$$(cat "$(VENV_STAMP)")" ]; then \
+		echo "Error: project path changed since .venv was created."; \
+		echo "Run 'make setup' to recreate the environment for this location."; \
+		exit 1; \
+	fi
+
+verify: ensure-venv
 	@echo "Verifying environment..."
 	$(PYTHON) -c "from fastsim_forest_nav.envs.forest_nav_env import ForestNavEnv; print('✓ ForestNavEnv imported:', ForestNavEnv)"
 	$(PYTHON) -c "import gymnasium; print('✓ gymnasium available')"
@@ -62,6 +89,22 @@ verify:
 	$(PYTHON) -c "import matplotlib; print('✓ matplotlib available')"
 	$(PYTHON) -c "import yaml; print('✓ PyYAML available')"
 	@echo "✓ All imports verified"
+
+lint: ensure-venv
+	$(PYTHON) -m ruff check src worldgen
+
+test: ensure-venv
+	@if find src worldgen -type f -name 'test_*.py' | grep -q .; then \
+		$(PYTHON) -m pytest -q; \
+	else \
+		echo "No tests discovered; skipping pytest"; \
+	fi
+
+check: lint test verify
+
+package: ensure-venv
+	rm -rf dist
+	$(PYTHON) -m pip wheel --no-deps --wheel-dir dist ./worldgen ./src/fastsim_forest_nav ./src/forest_nav_rl
 
 worldgen:
 	./scripts/worldgen/generate_world.sh configs/worldgen/worldgen_run.yaml --seed 42
@@ -89,14 +132,14 @@ gazebo-stop:
 	@pkill -9 -f 'ros_gz_sim create' 2>/dev/null || true
 	@echo "✓ Gazebo processes stopped"
 
-rl-train:
+rl-train: ensure-venv
 	@if [ -n "$(DEVICE)" ]; then \
 		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG) --device $(DEVICE); \
 	else \
 		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG); \
 	fi
 
-rl-resume:
+rl-resume: ensure-venv
 	@RUN_DIR="$(RUN)"; \
 	if [ -z "$$RUN_DIR" ]; then \
 		RUN_DIR=$$(ls -dt outputs/runs/sac_fastsim*/ 2>/dev/null | head -1 | sed 's|/$$||'); \
@@ -128,7 +171,7 @@ rl-resume:
 		$(PYTHON) -m forest_nav_rl.train_sac --config "$$CONFIG_PATH" --resume-from $$RUN_DIR; \
 	fi
 
-rl-eval:
+rl-eval: ensure-venv
 	@if [ -z "$(MODEL)" ]; then \
 		echo "Error: MODEL is required. Usage: make rl-eval MODEL=path/to/model.zip"; \
 		exit 1; \
@@ -142,20 +185,15 @@ rl-eval:
 		$(PYTHON) -m forest_nav_rl.eval_policy --model "$(MODEL)" --num-episodes $(NUM_EPISODES) --deterministic --device $(DEVICE); \
 	fi
 
-rl-tensorboard:
-	$(PYTHON) -m tensorboard.main --logdir outputs/runs --port $(TB_PORT)
+rl-tensorboard: ensure-venv
+	@echo "TensorBoard logdir: $(TB_LOGDIR)"
+	@echo "Open: http://$(TB_HOST):$(TB_PORT)"
+	$(PYTHON) -m tensorboard.main --logdir $(TB_LOGDIR) --host $(TB_HOST) --port $(TB_PORT)
 
-rl-visualize:
-	@if [ -n "$(RUN)" ]; then \
-		$(PYTHON) -m forest_nav_rl.visualize_training --run-dir $(RUN); \
-	else \
-		$(PYTHON) -m forest_nav_rl.visualize_training; \
-	fi
-
-rl-compare:
+rl-compare: ensure-venv
 	$(PYTHON) -m forest_nav_rl.visualize_training --compare
 
-rl-trajectories:
+rl-trajectories: ensure-venv
 	@if [ -z "$(MODEL)" ]; then \
 		echo "Error: MODEL is required. Usage: make rl-trajectories MODEL=path/to/model.zip"; \
 		exit 1; \
@@ -183,11 +221,16 @@ rl-trajectories:
 rl-gazebo-demo:
 	./scripts/rl/gazebo_demo.sh 42 "$(MODEL)" $(NUM_EPISODES)
 
-clean:
-	rm -rf .venv
+clean-generated:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .ruff_cache -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name *.egg-info -exec rm -rf {} + 2>/dev/null || true
 	rm -rf worldgen/outputs
-	@echo "✓ Cleaned"
+	@echo "✓ Cleaned generated artifacts"
+
+clean: clean-generated
+
+deep-clean: clean-generated
+	rm -rf .venv dist
+	@echo "✓ Deep cleaned"

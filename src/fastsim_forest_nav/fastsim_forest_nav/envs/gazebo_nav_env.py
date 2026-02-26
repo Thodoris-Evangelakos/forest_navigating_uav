@@ -9,14 +9,16 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from fastsim_forest_nav.envs.forest_nav_env import (
-    SimParams,
-    _accel_limit_velocity,
-    _map_normalized_accel,
-    _approach_speed_cap,
-    _effective_drone_radius,
-    _soft_clearance_margin,
-    _protected_radius,
+from fastsim_forest_nav.dynamics.controls import (
+    accel_limit_velocity as _accel_limit_velocity,
+    approach_speed_cap as _approach_speed_cap,
+    map_normalized_accel as _map_normalized_accel,
+)
+from fastsim_forest_nav.envs.params import SimParams
+from fastsim_forest_nav.safety.geometry import (
+    effective_drone_radius as _effective_drone_radius,
+    protected_radius as _protected_radius,
+    soft_clearance_margin as _soft_clearance_margin,
 )
 
 

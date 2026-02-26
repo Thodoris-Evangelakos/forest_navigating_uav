@@ -1,3 +1,14 @@
 include:
   world: "configs/worldgen/world.default.yaml"
   layout: "configs/worldgen/layouts/mixed_field.yaml"
+
+stochastic:
+  enabled: false
+  layout_choices:
+    - "configs/worldgen/layouts/mixed_field.yaml"
+  distribution_choices:
+    - "csr.yaml"
+    - "regular.yaml"
+    - "clustered.yaml"
+    - "scale_dependent.yaml"
+  distribution_mode: "per_entry"

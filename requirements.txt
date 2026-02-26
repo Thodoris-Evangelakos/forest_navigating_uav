@@ -5,6 +5,7 @@ stable-baselines3>=2.2
 PyYAML>=6.0
 matplotlib>=3.7
 tensorboard>=2.14
+setuptools>=68,<81
 
 # Development tools
 pytest>=8.0

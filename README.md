@@ -8,6 +8,8 @@ This workspace contains three main components:
 
 ## Quickstart (Dev Setup)
 
+If you copy/move this repository to a new directory, `make` targets now auto-detect stale `.venv` paths and rebuild the virtual environment as needed.
+
 ### Option 1: One-Command Setup (Recommended)
 
 From the repository root:
@@ -66,10 +68,14 @@ Use `./.venv/bin/python` (or activate `.venv`) to ensure the correct environment
 	./scripts/worldgen/generate_world_and_run.sh --seed 42
 	```
 
-- Generate, launch, and spawn UAV:
+- Launch world, then spawn UAV (separate steps):
 
 	```bash
-	./scripts/worldgen/generate_world_with_uav.sh --seed 42 --index 0
+	./scripts/worldgen/generate_world_and_run.sh --seed 42
+	```
+
+	```bash
+	make gazebo-spawn-uav
 	```
 
 ## RL via Make
@@ -98,17 +104,15 @@ Gazebo is for demonstration/rollouts only; training is supported in fastsim.
 	make rl-tensorboard TB_PORT=6006
 	```
 
-- Generate single-run visualization (latest run by default):
+	Overrides:
 
 	```bash
-	make rl-visualize
+	make rl-tensorboard TB_LOGDIR=outputs/runs TB_HOST=0.0.0.0 TB_PORT=6006
 	```
 
-- Generate single-run visualization for a specific run:
+	`rl-resume` now keeps TensorBoard curves continuous within the same run directory.
 
-	```bash
-	make rl-visualize RUN=outputs/runs/sac_fastsim_005
-	```
+- Single-run visualization is generated automatically at training end (including graceful Ctrl+C) into `outputs/runs/<run>/report/`.
 
 - Generate multi-run comparison report:
 
@@ -135,3 +139,37 @@ Gazebo is for demonstration/rollouts only; training is supported in fastsim.
 	```
 
 For script details, see `scripts/README.md` and `worldgen/README.md`.
+
+## RL Output Folders
+
+- `best/` stores the best eval checkpoint (`best_model.zip`) from `EvalCallback`.
+- `final/` stores end-of-run artifacts (`sac_final_model.zip`, summary, and optional replay/vecnorm state).
+- `monitors/` stores per-episode monitor CSV logs (train/eval) used for offline reporting.
+- `eval/` stores evaluation history (`evaluations.npz`) from periodic eval callbacks.
+- `tb/` stores TensorBoard event files for live scalar inspection during/after training.
+
+## Delivery and Maintenance Targets
+
+- Run quality gates:
+
+	```bash
+	make check
+	```
+
+- Build wheel artifacts for delivery:
+
+	```bash
+	make package
+	```
+
+- Clean generated artifacts (preserves `outputs/runs`):
+
+	```bash
+	make clean
+	```
+
+- Deep clean including `.venv` and `dist/`:
+
+	```bash
+	make deep-clean
+	```

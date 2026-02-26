@@ -109,6 +109,33 @@ layout:
     width: 8.0
 ```
 
+### Run Configuration (`worldgen_run.yaml`)
+
+The run config can now optionally enable stochastic sampling of layout and distribution references at each generation call (useful for RL resets).
+
+```yaml
+include:
+  world: "configs/worldgen/world.default.yaml"
+  layout: "configs/worldgen/layouts/mixed_field.yaml"  # fallback when stochastic is disabled
+
+stochastic:
+  enabled: false  # set true to enable stochastic layout/distribution sampling
+  layout_choices:
+    - "configs/worldgen/layouts/mixed_field.yaml"
+  distribution_choices:
+    - "csr.yaml"
+    - "regular.yaml"
+    - "clustered.yaml"
+    - "scale_dependent.yaml"
+  distribution_mode: "per_entry"
+```
+
+`distribution_mode` behavior:
+- `global`: one distribution is sampled and applied everywhere in the selected layout
+- `per_entry` (aliases: `per_component`, `per_zone`): each `distribution_ref` entry in the selected layout is sampled independently
+
+When `--seed` is provided, stochastic choices are deterministic for that seed.
+
 ### Distribution Patterns
 
 **CSR**: Uniform random (Complete Spatial Randomness)

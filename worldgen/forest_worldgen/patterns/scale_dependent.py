@@ -43,7 +43,7 @@ Validation targets (logged, not enforced):
 import math
 import random
 
-from .csr import _check_min_distance, _point_in_area, _point_in_rect, ProximityGrid
+from .csr import _point_in_area, _point_in_rect, ProximityGrid
 from .clustered import (
     sample_clustered,
     _place_parents,

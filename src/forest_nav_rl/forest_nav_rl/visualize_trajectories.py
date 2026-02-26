@@ -468,6 +468,9 @@ def main() -> None:
                 "goal_x": float(goal_pos[0]),
                 "goal_y": float(goal_pos[1]),
                 "num_trees": len(trees),
+                "worldgen_seed": env.episode_reset_info.get("worldgen_seed"),
+                "worldgen_layout": env.episode_reset_info.get("worldgen_layout"),
+                "worldgen_distribution_refs": list(env.episode_reset_info.get("worldgen_distribution_refs", [])),
                 **diagnostics,
             }
         )

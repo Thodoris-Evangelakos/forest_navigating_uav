@@ -12,6 +12,7 @@ from . import layouts
 from . import export
 from . import spatial_stats
 from .config import load_config, load_template, resolve_path
+from .pipeline import generate_positions_from_config, run_generation
 
 # NOTE: generate_world.main is intentionally NOT imported here.
 # It is a CLI entry point executed via `python -m`, and eagerly importing it
@@ -25,4 +26,6 @@ __all__ = [
     'load_config',
     'load_template',
     'resolve_path',
+    'generate_positions_from_config',
+    'run_generation',
 ]

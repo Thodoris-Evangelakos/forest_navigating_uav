@@ -16,7 +16,6 @@ def positions_to_includes(positions, model_uris, min_height, max_height, include
     # Pre-generate random choices in bulk for less per-iteration overhead
     uris = [model_uris[int(random.random() * len(model_uris))] for _ in range(n)]
     yaws = [random.uniform(-math.pi, math.pi) for _ in range(n)]
-    heights = [random.uniform(min_height, max_height) for _ in range(n)]
 
     parts = []
     for i, (x, y) in enumerate(positions):

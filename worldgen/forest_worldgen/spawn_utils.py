@@ -6,7 +6,6 @@ based on configuration, with optional margins from boundaries.
 """
 
 import json
-import math
 import random
 from datetime import datetime
 from .config import load_config, resolve_path

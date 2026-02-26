@@ -12,11 +12,12 @@ import torch
 # SB3 imports
 from stable_baselines3 import SAC
 from stable_baselines3.common.env_checker import check_env
-from stable_baselines3.common.callbacks import BaseCallback, CheckpointCallback, EvalCallback
+from stable_baselines3.common.callbacks import BaseCallback, EvalCallback
 from stable_baselines3.common.vec_env import VecNormalize
 
 from forest_nav_rl.gym_async_vec_env import GymAsyncVecEnv
 from forest_nav_rl.utils import build_env_ctor_and_kwargs, get_env_backend
+from forest_nav_rl.visualize_training import generate_single_run_report
 
 
 MONITOR_INFO_KEYS = (
@@ -242,7 +243,6 @@ def main():
         run_dir = make_run_dir(base_runs_dir, exp_name)
         is_resume = False
 
-    (run_dir / "checkpoints").mkdir(exist_ok=True)
     (run_dir / "eval").mkdir(exist_ok=True)
     (run_dir / "best").mkdir(exist_ok=True)
     (run_dir / "tb").mkdir(exist_ok=True)
@@ -293,11 +293,12 @@ def main():
         eval_env.norm_reward = False
 
     # callbacks
-    save_checkpoints = bool(cfg["training"].get("save_checkpoints", True))
-
-    # CheckpointCallback can save replay buffer and VecNormalize stats if needed
+    # Explicitly disable historical checkpoint snapshots.
+    # Delivery policy keeps only best/ and final/ artifacts.
+    if bool(cfg["training"].get("save_checkpoints", False)):
+        print("Note: training.save_checkpoints is ignored; checkpoints/ output is disabled.")
     save_freq = cfg["training"].get("checkpoint_freq_step", 10000)
-    save_freq = max(save_freq // n_envs, 1)  # adjust for number of envs
+    save_freq = max(save_freq // n_envs, 1)
 
     final_snapshot_freq_step = int(cfg["training"].get("final_snapshot_freq_step", save_freq * n_envs))
     final_snapshot_freq = max(final_snapshot_freq_step // n_envs, 1) if final_snapshot_freq_step > 0 else 0
@@ -312,14 +313,6 @@ def main():
     save_replay_buffer = cfg["training"].get("save_replay_buffer", True)
 
     checkpoint_cb = None
-    if save_checkpoints:
-        checkpoint_cb = CheckpointCallback(
-            save_freq=save_freq,
-            save_path=str(run_dir / "checkpoints"),
-            name_prefix="sac_checkpoint",
-            save_replay_buffer=save_replay_buffer,
-            save_vecnormalize=save_vecnormalize
-        )
 
     eval_freq = int(cfg["logging"]["eval_freq_step"])
     eval_freq = max(eval_freq // n_envs, 1)  # adjust for number of envs
@@ -410,7 +403,9 @@ def main():
         model.learn(
             total_timesteps=total_timesteps,
             callback=callbacks,
-            progress_bar=True
+            progress_bar=True,
+            tb_log_name=run_dir.name,
+            reset_num_timesteps=not is_resume,
         )
     except KeyboardInterrupt:
         interrupted = True
@@ -451,6 +446,15 @@ def main():
     summary_path = run_dir / "final" / "training_summary.yaml"
     with summary_path.open("w") as f:
         yaml.safe_dump(summary, f, sort_keys=False)
+
+    # Auto-generate training report at run end (including graceful Ctrl+C stop).
+    report_dir = run_dir / "report"
+    rolling_window = int(cfg.get("logging", {}).get("report_rolling_window", 50))
+    try:
+        generate_single_run_report(run_dir, report_dir, rolling_window=rolling_window)
+        print(f"Run report generated at: {report_dir}")
+    except Exception as exc:
+        print(f"Warning: failed to generate run report automatically: {exc}")
 
     print("Training summary:")
     print(f"  started_at: {summary['training_started_at']}")

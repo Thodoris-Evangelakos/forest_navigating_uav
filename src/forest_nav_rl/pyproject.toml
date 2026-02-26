@@ -12,8 +12,11 @@ dependencies = [
 	"numpy>=1.24",
 	"gymnasium>=0.29",
 	"stable-baselines3>=2.2",
+	"fastsim-forest-nav>=0.1.0",
 	"PyYAML>=6.0",
 	"matplotlib>=3.7",
+	"tensorboard>=2.14",
+	"setuptools>=68,<81",
 ]
 
 [project.scripts]

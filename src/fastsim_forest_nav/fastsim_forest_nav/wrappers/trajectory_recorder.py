@@ -15,10 +15,12 @@ class TrajectoryRecorder(gym.Wrapper):
         self.episode_start_pos: np.ndarray | None = None
         self.episode_goal_pos: np.ndarray | None = None
         self.episode_trees: np.ndarray | None = None
+        self.episode_reset_info: dict[str, Any] = {}
 
     def reset(self, **kwargs) -> tuple[Any, dict[str, Any]]:
         obs, info = self.env.reset(**kwargs)
         self.trajectory = []
+        self.episode_reset_info = dict(info) if isinstance(info, dict) else {}
 
         # Capture episode metadata
         if hasattr(self.env.unwrapped, "pos"):

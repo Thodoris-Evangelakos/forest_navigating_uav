@@ -6,7 +6,7 @@ import random
 import math
 from ..config import load_distribution
 from ..patterns.csr import _point_in_area, _check_min_distance, ProximityGrid
-from ..patterns.clustered import _scatter_gaussian, _scatter_uniform_disk, _SCATTER_FNS
+from ..patterns.clustered import _scatter_gaussian, _SCATTER_FNS
 
 
 def _sigmoid(x, center, width):

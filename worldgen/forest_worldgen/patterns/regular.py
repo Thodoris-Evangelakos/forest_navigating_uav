@@ -18,7 +18,6 @@ Validation targets (logged, not enforced):
 
 import math
 import random
-from .csr import _point_in_rect, _point_in_area, _check_min_distance
 
 
 # ---------------------------------------------------------------------------

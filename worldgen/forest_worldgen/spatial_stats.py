@@ -123,8 +123,6 @@ def pair_correlation(positions, area, r_max=None, n_bins=25):
     if n < 2 or area <= 0:
         return []
 
-    density = n / area
-
     if r_max is None:
         # need all distances to determine r_max; fall back to full computation
         dists = _pairwise_distances(positions)

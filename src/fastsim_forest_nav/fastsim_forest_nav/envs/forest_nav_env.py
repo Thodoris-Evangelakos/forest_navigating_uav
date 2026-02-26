@@ -1,5 +1,4 @@
 #from __future__ import annotations
-from dataclasses import dataclass, field
 from typing import Any, Optional, Tuple
 from pathlib import Path
 import importlib
@@ -9,149 +8,17 @@ import numpy as np
 import gymnasium as gym
 from gymnasium import spaces
 from stable_baselines3.common.env_checker import check_env
-
-@dataclass
-class SimParams:
-    """Parameters for the simulation - all values must be provided from config.
-    No defaults here to ensure single source of truth in sac.yaml.
-    """
-    # simulation / physics
-    dt: float
-    lidar_num_beams: int
-    lidar_range_max: float
-    v_max: float
-    wz_max: float
-    vz_max: float
-    r_safe: float
-    episode_seconds: float
-    goal_tolerance: float
-    world_radius: float
-    collision_threshold: float
-
-    # vertical tracking / observation scaling
-    default_z_target: float
-    z_error_scale: float
-
-    # reward shaping
-    reward_progress_scale: float
-    reward_speed_scale: float
-    reward_step_penalty: float
-    reward_proximity_scale: float
-    reward_shield_penalty: float
-    reward_collision_penalty: float
-    reward_success_bonus: float
-    reward_truncation_penalty: float
-    reward_yaw_rate_scale: float
-    reward_stall_penalty: float
-    progress_stall_threshold: float
-    yaw_penalty_speed_gate: float
-
-    # safety shield
-    shield_floor_z_min: float
-    shield_yaw_damping: float
-    shield_lookahead_margin: float
-
-    # world generation for fastsim (pure in-memory)
-    worldgen_config_relpath: str
-    worldgen_seed_offset: int
-    tree_radius_mean: float
-    tree_radius_std: float
-    tree_radius_min: float
-    tree_radius_max: float
-
-    # start / goal sampling
-    start_goal_clearance: float
-    min_start_goal_distance: float
-    spawn_max_attempts: int
-    worldgen_resample_every_n_episodes: int = field(default=1)
-    worldgen_verbose: bool = field(default=False)
-    start_goal_tree_exclusion_radius: float = field(default=3.0)
-    shield_ceiling_z_max: float = field(default=0.0)  # m, <=0 disables ceiling guard
-
-    # dynamics control mode
-    # "hybrid" = acceleration command integrated to velocity
-    action_mode: str = field(default="hybrid")
-    accel_v_max: float = field(default=3.0)   # m/s**2  – max forward/backward accel
-    accel_wz_max: float = field(default=2.0)  # rad/s**2 – max yaw accel
-    accel_vz_max: float = field(default=1.5)  # m/s**2  – max vertical accel
-    decel_v_max: float = field(default=0.0)   # m/s**2  – max forward/backward decel (<=0 uses accel_v_max)
-    decel_wz_max: float = field(default=0.0)  # rad/s**2 – max yaw decel (<=0 uses accel_wz_max)
-    decel_vz_max: float = field(default=0.0)  # m/s**2  – max vertical decel (<=0 uses accel_vz_max)
-    # UAV body radius used for geometric collision/clearance checks.
-    # When <= 0, falls back to collision_threshold for backward compatibility.
-    drone_radius: float = field(default=0.0)
-    reward_accel_clip_penalty: float = field(default=0.0)
-    boundary_margin: float = field(default=1.0)  # virtual wall offset from world border
-
-
-def _accel_limit_velocity(
-    desired: float,
-    current: float,
-    accel_max: float,
-    dt: float,
-    decel_max: float | None = None,
-) -> tuple:
-    """Rate-limit a velocity setpoint with an acceleration constraint.
-
-    Returns (applied_velocity, was_clipped).
-    When accel_max <= 0 the setpoint is passed through unchanged.
-    """
-    if accel_max <= 0.0:
-        return float(desired), False
-
-    effective_decel = float(decel_max) if decel_max is not None and float(decel_max) > 0.0 else float(accel_max)
-    accel_step = float(accel_max) * float(dt)
-    decel_step = float(effective_decel) * float(dt)
-
-    delta = float(desired) - float(current)
-    if delta >= 0.0:
-        clipped = delta > accel_step
-        applied = float(current) + float(np.clip(delta, 0.0, accel_step))
-    else:
-        clipped = abs(delta) > decel_step
-        applied = float(current) + float(np.clip(delta, -decel_step, 0.0))
-
-    return applied, clipped
-
-
-def _map_normalized_accel(action_component: float, accel_max: float, decel_max: float) -> float:
-    """Map normalized action in [-1, 1] to physical acceleration.
-
-    Positive values use accel_max, negative values use decel_max when provided,
-    otherwise they fall back to accel_max.
-    """
-    u = float(np.clip(action_component, -1.0, 1.0))
-    pos_limit = float(max(accel_max, 0.0))
-    neg_limit = float(decel_max) if float(decel_max) > 0.0 else pos_limit
-    if u >= 0.0:
-        return u * pos_limit
-    return u * neg_limit
-
-
-def _approach_speed_cap(gap: float, decel_max: float, dt: float) -> float:
-    """Max approach speed such that one-step travel plus braking distance stays within gap.
-
-    Solves v*dt + v^2/(2*a) <= gap for v >= 0.
-    """
-    g = float(max(gap, 0.0))
-    a = float(max(decel_max, 1e-6))
-    d = float(max(dt, 1e-6))
-    return float(max(0.0, -a * d + np.sqrt((a * d) ** 2 + 2.0 * a * g)))
-
-
-def _effective_drone_radius(params: SimParams) -> float:
-    configured = float(getattr(params, "drone_radius", 0.0))
-    if configured > 0.0:
-        return configured
-    return float(params.collision_threshold)
-
-
-def _soft_clearance_margin(params: SimParams) -> float:
-    return float(max(0.0, float(params.r_safe) - _effective_drone_radius(params)))
-
-
-def _protected_radius(params: SimParams) -> float:
-    return _effective_drone_radius(params) + _soft_clearance_margin(params)
+from fastsim_forest_nav.dynamics.controls import (
+    accel_limit_velocity as _accel_limit_velocity,
+    approach_speed_cap as _approach_speed_cap,
+    map_normalized_accel as _map_normalized_accel,
+)
+from fastsim_forest_nav.envs.params import SimParams
+from fastsim_forest_nav.safety.geometry import (
+    effective_drone_radius as _effective_drone_radius,
+    protected_radius as _protected_radius,
+    soft_clearance_margin as _soft_clearance_margin,
+)
 
 
 class ForestNavEnv(gym.Env):
@@ -209,6 +76,7 @@ class ForestNavEnv(gym.Env):
         self._prev_dist: Optional[float] = None # last distance, can use to calculate delta
         self._world_half_extent = float(self.p.world_radius)
         self._last_worldgen_seed: Optional[int] = None
+        self._last_worldgen_selection: dict[str, Any] | None = None
         self._episode_counter: int = 0
 
         # full 360 deg lidar beam geometry (relative to body x-axis)
@@ -559,6 +427,17 @@ class ForestNavEnv(gym.Env):
             "min_range": min_range,
             "tree_count": int(0 if self.trees is None else len(self.trees)),
             "worldgen_seed": int(self._last_worldgen_seed) if self._last_worldgen_seed is not None else None,
+            "worldgen_layout": (
+                str(self._last_worldgen_selection.get("layout_ref"))
+                if isinstance(self._last_worldgen_selection, dict)
+                and self._last_worldgen_selection.get("layout_ref")
+                else None
+            ),
+            "worldgen_distribution_refs": (
+                [str(v) for v in self._last_worldgen_selection.get("selected_distribution_refs", [])]
+                if isinstance(self._last_worldgen_selection, dict)
+                else []
+            ),
         }
         info.update(kwargs)
         info["is_success"] = bool(info.get("success", False))
@@ -815,11 +694,13 @@ class ForestNavEnv(gym.Env):
         episode_seed += int(self.p.worldgen_seed_offset)
         self._last_worldgen_seed = episode_seed
 
-        positions_xy, world_config, _ = generate_positions_from_config(
+        positions_xy, world_config, _, selection_meta = generate_positions_from_config(
             str(config_path),
             seed=episode_seed,
             verbose=bool(self.p.worldgen_verbose),
+            return_selection_meta=True,
         )
+        self._last_worldgen_selection = selection_meta if isinstance(selection_meta, dict) else None
 
         area_size = float(world_config['generation']['area_size'])
         self._world_half_extent = area_size / 2.0

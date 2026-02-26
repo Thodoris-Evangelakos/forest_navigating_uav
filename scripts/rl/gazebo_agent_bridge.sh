@@ -12,7 +12,17 @@ KILL_STALE_BRIDGE=${KILL_STALE_BRIDGE:-1}
 cd "$PROJECT_ROOT"
 
 PYTHON="./.venv/bin/python"
-if [ ! -f "$PYTHON" ]; then
+VENV_STAMP="./.venv/.project-root"
+CURRENT_ROOT="$(pwd -P)"
+
+if [ -x "$PYTHON" ]; then
+  if [ ! -f "$VENV_STAMP" ] || [ "$(cat "$VENV_STAMP" 2>/dev/null)" != "$CURRENT_ROOT" ]; then
+    echo "Detected moved/stale .venv. Rebuilding virtual environment..."
+    make venv-rebuild
+  fi
+fi
+
+if [ ! -x "$PYTHON" ]; then
   PYTHON="python3"
 fi
 

@@ -31,12 +31,22 @@ The evaluator auto-loads `config_used.yaml` and `vecnormalize.pkl` from the run 
 ## Live Monitoring (TensorBoard)
 
 ```bash
-tensorboard --logdir outputs/runs --port 6006
+make rl-tensorboard TB_PORT=6006
 ```
 
 Open http://localhost:6006 and select a run.
 
+For remote/WSL setups:
+
+```bash
+make rl-tensorboard TB_LOGDIR=outputs/runs TB_HOST=0.0.0.0 TB_PORT=6006
+```
+
+When resuming a run, TensorBoard timesteps continue from prior training instead of restarting at zero.
+
 ## Offline Visualization (PNG + CSV)
+
+Single-run report is generated automatically at training end into `outputs/runs/<run>/report/`.
 
 Single run (default: latest run):
 
@@ -91,3 +101,11 @@ Gazebo backend requires ROS2 Python interfaces (`rclpy`, `geometry_msgs`, `nav_m
 	- per-run subdirectories with the same single-run report files- Trajectory visualization: `outputs/runs/<run>/trajectories/` (or custom output dir)
   - `trajectory_episode_000.png`, `trajectory_episode_001.png`, ...
   - `episode_stats.json`
+
+## Output folder semantics
+
+- `best/`: best checkpoint from periodic eval (`best_model.zip`)
+- `final/`: end-of-run state (`sac_final_model.zip` + summary + optional replay/vecnormalize)
+- `monitors/`: episode monitor CSVs used for offline metrics/plots
+- `eval/`: evaluation traces (`evaluations.npz`) from eval callback
+- `tb/`: TensorBoard event files for live monitoring
