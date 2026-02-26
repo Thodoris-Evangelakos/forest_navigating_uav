@@ -68,9 +68,8 @@ class SimParams:
     start_goal_tree_exclusion_radius: float = field(default=3.0)
 
     # dynamics control mode
-    # "velocity" = legacy direct assignment (backward-compat for old checkpoints/eval)
-    # "hybrid"   = first-order acceleration limiting (use for all new training)
-    action_mode: str = field(default="velocity")
+    # "hybrid" = acceleration command integrated to velocity
+    action_mode: str = field(default="hybrid")
     accel_v_max: float = field(default=3.0)   # m/s**2  – max forward/backward accel
     accel_wz_max: float = field(default=2.0)  # rad/s**2 – max yaw accel
     accel_vz_max: float = field(default=1.5)  # m/s**2  – max vertical accel
@@ -114,6 +113,20 @@ def _accel_limit_velocity(
     return applied, clipped
 
 
+def _map_normalized_accel(action_component: float, accel_max: float, decel_max: float) -> float:
+    """Map normalized action in [-1, 1] to physical acceleration.
+
+    Positive values use accel_max, negative values use decel_max when provided,
+    otherwise they fall back to accel_max.
+    """
+    u = float(np.clip(action_component, -1.0, 1.0))
+    pos_limit = float(max(accel_max, 0.0))
+    neg_limit = float(decel_max) if float(decel_max) > 0.0 else pos_limit
+    if u >= 0.0:
+        return u * pos_limit
+    return u * neg_limit
+
+
 def _approach_speed_cap(gap: float, decel_max: float, dt: float) -> float:
     """Max approach speed such that one-step travel plus braking distance stays within gap.
 
@@ -152,6 +165,12 @@ class ForestNavEnv(gym.Env):
         self.p = params
         self.render_mode = render_mode
 
+        if self.p.action_mode != "hybrid":
+            raise ValueError(
+                f"Unsupported action_mode='{self.p.action_mode}'. "
+                "Only action_mode='hybrid' is supported."
+            )
+
         # Observation space: [lidar_ranges normalized...,
         # cos(theta_goal), sin(theta_goal), forward_speed norm, yaw_rate norm, height error normalized =
         # clip((z_target -z) / z_scale, -1, 1)]
@@ -161,8 +180,8 @@ class ForestNavEnv(gym.Env):
             low = -1.0, high = 1.0, shape=(obs_dim,), dtype=np.float32
         )
 
-        # Action space: a[0] = forward speed command, a[1] = yaw rate command, a[2] = vertical speed command
-        # all 3 normalized in their respective v max. E.g. v = a[0] * v_max
+        # Action space: normalized acceleration commands in each axis.
+        # a[0] -> forward accel, a[1] -> yaw accel, a[2] -> vertical accel
         # SAC in SB3 is built for continuous Box actions
         self.action_space = spaces.Box(
             low = -1.0, high = 1.0, shape = (3,), dtype = np.float32
@@ -355,48 +374,57 @@ class ForestNavEnv(gym.Env):
     def step(self, action: np.ndarray):
         action = np.asarray(action, dtype=np.float32)
 
-        # map normalized actions (more like suggestions) to actual commands
-        cmd_v = float(action[0]) * self.p.v_max
-        cmd_wz = float(action[1]) * self.p.wz_max
-        cmd_vz = float(action[2]) * self.p.vz_max
+        accel_v = _map_normalized_accel(float(action[0]), self.p.accel_v_max, self.p.decel_v_max)
+        accel_wz = _map_normalized_accel(float(action[1]), self.p.accel_wz_max, self.p.decel_wz_max)
+        accel_vz = _map_normalized_accel(float(action[2]), self.p.accel_vz_max, self.p.decel_vz_max)
+
+        pre_clip_v = float(self.v) + accel_v * float(self.p.dt)
+        pre_clip_wz = float(self.wz) + accel_wz * float(self.p.dt)
+        pre_clip_vz = float(self.vz) + accel_vz * float(self.p.dt)
+
+        cmd_v = float(np.clip(pre_clip_v, -self.p.v_max, self.p.v_max))
+        cmd_wz = float(np.clip(pre_clip_wz, -self.p.wz_max, self.p.wz_max))
+        cmd_vz = float(np.clip(pre_clip_vz, -self.p.vz_max, self.p.vz_max))
+        accel_clipped = int(
+            (cmd_v != pre_clip_v) or (cmd_wz != pre_clip_wz) or (cmd_vz != pre_clip_vz)
+        )
 
         # safety shield clamps command (authoritative)
         safe_v, safe_wz, safe_vz, shield_active, shield_delta = self._apply_shield(
             cmd_v, cmd_wz, cmd_vz
         )
 
-        # hybrid dynamics: rate-limit velocity change using stored state
-        if self.p.action_mode == "hybrid":
-            applied_v, clip_v = _accel_limit_velocity(
-                float(safe_v),
-                float(self.v),
-                self.p.accel_v_max,
-                self.p.dt,
-                self.p.decel_v_max,
-            )
-            applied_wz, clip_wz = _accel_limit_velocity(
-                float(safe_wz),
-                float(self.wz),
-                self.p.accel_wz_max,
-                self.p.dt,
-                self.p.decel_wz_max,
-            )
-            applied_vz, clip_vz = _accel_limit_velocity(
-                float(safe_vz),
-                float(self.vz),
-                self.p.accel_vz_max,
-                self.p.dt,
-                self.p.decel_vz_max,
-            )
-            accel_clipped = int(clip_v or clip_wz or clip_vz)
-            self.v = np.float32(applied_v)
-            self.wz = np.float32(applied_wz)
-            self.vz = np.float32(applied_vz)
-        else:
-            applied_v = float(safe_v)
-            applied_wz = float(safe_wz)
-            applied_vz = float(safe_vz)
-            accel_clipped = 0
+        applied_v, slew_clipped_v = _accel_limit_velocity(
+            desired=float(safe_v),
+            current=float(self.v),
+            accel_max=float(self.p.accel_v_max),
+            dt=float(self.p.dt),
+            decel_max=float(self.p.decel_v_max),
+        )
+        applied_wz, slew_clipped_wz = _accel_limit_velocity(
+            desired=float(safe_wz),
+            current=float(self.wz),
+            accel_max=float(self.p.accel_wz_max),
+            dt=float(self.p.dt),
+            decel_max=float(self.p.decel_wz_max),
+        )
+        applied_vz, slew_clipped_vz = _accel_limit_velocity(
+            desired=float(safe_vz),
+            current=float(self.vz),
+            accel_max=float(self.p.accel_vz_max),
+            dt=float(self.p.dt),
+            decel_max=float(self.p.decel_vz_max),
+        )
+        accel_clipped = int(
+            bool(accel_clipped)
+            or slew_clipped_v
+            or slew_clipped_wz
+            or slew_clipped_vz
+        )
+
+        self.v = np.float32(applied_v)
+        self.wz = np.float32(applied_wz)
+        self.vz = np.float32(applied_vz)
 
         # integrate simple kinematics (fastsim)
         self._integrate(np.float32(applied_v), np.float32(applied_wz), np.float32(applied_vz))
@@ -542,9 +570,9 @@ class ForestNavEnv(gym.Env):
     def _apply_shield(self, v: float, wz: float, vz: float):
         """Velocity-barrier safety shield.
 
-        For every tree, ensure the UAV cannot close more gap than available in one time-step
-        If the commanded v would violate this constraint it is clamped to the largest safe value
-        Yaw rate is passed through (only speed magnitude is regulated)
+        For every tree, compute a safe velocity target from clearance constraints.
+        This target is later passed through acceleration/deceleration slew limits
+        before being applied to the simulated state.
 
         Returns (safe_v, safe_wz, safe_vz, shield_active, shield_delta_norm)
         #NOTE:XXX This might result in the drone just getting stuck? 

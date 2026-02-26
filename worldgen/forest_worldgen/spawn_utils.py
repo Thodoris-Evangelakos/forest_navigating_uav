@@ -103,7 +103,7 @@ def generate_spawn_points(config_file, world_file=None, margin=1.0, z_height=2.0
     Parameters
     ----------
     config_file : str
-        Path to worldgen_run.yaml or world.default.yaml
+        Path to worldgen_run.yaml
     world_file : str, optional
         Path to generated world.sdf (informational only, not used for calculations)
     margin : float
@@ -136,14 +136,19 @@ def generate_spawn_points(config_file, world_file=None, margin=1.0, z_height=2.0
     script_dir = os.path.dirname(os.path.abspath(__file__))
     project_root = os.path.abspath(os.path.join(script_dir, '..', '..'))
     
-    # Handle both worldgen_run.yaml and legacy world.default.yaml
-    if 'include' in config:
-        # worldgen_run.yaml style
-        world_path = resolve_path(config['include']['world'], project_root)
-        world_config = load_config(world_path)
-    else:
-        # legacy single-file mode
-        world_config = config
+    include_cfg = config.get('include')
+    if not isinstance(include_cfg, dict):
+        raise ValueError(
+            "Invalid worldgen run config: missing 'include' mapping. "
+            "Use configs/worldgen/worldgen_run.yaml-style config."
+        )
+
+    world_ref = include_cfg.get('world')
+    if not world_ref:
+        raise ValueError("Invalid worldgen run config: include.world is required")
+
+    world_path = resolve_path(world_ref, project_root)
+    world_config = load_config(world_path)
     
     area_size = world_config['generation']['area_size']
     

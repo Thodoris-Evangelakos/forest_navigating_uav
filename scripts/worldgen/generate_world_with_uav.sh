@@ -1,7 +1,7 @@
 #!/bin/bash
 
 # Generate a forest world, launch Gazebo, and spawn a UAV at the edge
-# Usage: ./generate_world_with_uav.sh [config_file] [--seed SEED] [--index INDEX] [--margin MARGIN] [--height HEIGHT]
+# Usage: ./generate_world_with_uav.sh [config_file] [--seed SEED] [--index INDEX] [--margin MARGIN] [--height HEIGHT] [--wait-spawn|--no-wait-spawn]
 #
 # This script:
 # 1. Generates a randomized world (saved to outputs/runs/)
@@ -13,6 +13,7 @@
 #   - index: 0 (NW corner)
 #   - margin: 1.0 m
 #   - height: 2.0 m
+#   - wait-spawn: enabled (press Enter before UAV spawn)
 
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 PROJECT_ROOT="$( cd "$SCRIPT_DIR/../.." && pwd )"
@@ -25,6 +26,7 @@ SEED=""
 INDEX="0"
 MARGIN="1.0"
 HEIGHT="2.0"
+WAIT_SPAWN="1"
 
 i=2
 while [ $i -le $# ]; do
@@ -44,6 +46,12 @@ while [ $i -le $# ]; do
         --height)
             ((i++))
             HEIGHT="${!i}"
+            ;;
+        --wait-spawn)
+            WAIT_SPAWN="1"
+            ;;
+        --no-wait-spawn)
+            WAIT_SPAWN="0"
             ;;
     esac
     ((i++))
@@ -87,8 +95,8 @@ gz sim -r "$LATEST_WORLD" &
 GZ_PID=$!
 
 # Wait for Gazebo to initialize
-echo "Waiting for Gazebo to initialize (10 seconds)..."
-sleep 10
+echo "Waiting for Gazebo to initialize (30 seconds)..."
+sleep 30
 
 # Check if Gazebo is still running
 if ! ps -p $GZ_PID > /dev/null; then
@@ -117,6 +125,21 @@ echo ""
 
 # Step 3: Spawn UAV
 echo "[3/3] Spawning UAV..."
+if [ "$WAIT_SPAWN" = "1" ]; then
+    if [ -t 0 ]; then
+        echo "Gazebo is ready."
+        echo "Press Enter when you want to spawn the UAV (or type 'q' to cancel)."
+        read -r USER_CONFIRM
+        if [ "$USER_CONFIRM" = "q" ]; then
+            echo "Spawn cancelled by user."
+            echo "Gazebo is still running (PID: $GZ_PID)."
+            exit 0
+        fi
+    else
+        echo "Non-interactive shell detected; proceeding with UAV spawn."
+    fi
+fi
+
 bash "$SCRIPT_DIR/spawn_uav.sh" "$LATEST_WORLD" --index "$INDEX" --margin "$MARGIN" --height "$HEIGHT"
 
 if [ $? -eq 0 ]; then

@@ -53,7 +53,6 @@ env:
 
       # dynamics control mode: "hybrid" applies acceleration limits before integration
       # so the policy must plan a smooth velocity trajectory (better sim-to-real transfer).
-      # Use "velocity" only for eval of previously trained models
       action_mode: hybrid
       accel_v_max: 4.5    # m/s**2: easier early learning under hybrid dynamics
       accel_wz_max: 3.0   # rad/s**2

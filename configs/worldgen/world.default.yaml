@@ -12,6 +12,10 @@ generation:
   area_size: 50       # K×K world size (metres)
   object_count: 900   # total number of obstacles to generate
   min_distance: 0.62  # hard minimum distance between any two obstacles (metres)
+  start_goal_tree_exclusion_radius: 3.0  # clears trees around sampled start/goal anchors (Gazebo export)
+  start_goal_min_distance: 8.0           # minimum XY distance between sampled start and goal anchors
+  start_goal_band_ratio: 0.55            # anchors sampled from opposite boundary bands [0..1]
+  spawn_max_attempts: 500                # max tries for anchor sampling before fallback
   # CURRENTLY USELESS
   min_tree_height: 0.8  # min tree height scale
   max_tree_height: 1.2  # max tree height scale

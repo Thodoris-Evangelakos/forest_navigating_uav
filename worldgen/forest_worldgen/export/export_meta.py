@@ -8,7 +8,7 @@ from datetime import datetime
 from ..spatial_stats import compute_validation_stats
 
 
-def export_meta(positions, world_config, layout_config, output_path, seed=None):
+def export_meta(positions, world_config, layout_config, output_path, seed=None, start_goal_anchors=None):
     """
     Export metadata about the generated world to JSON.
 
@@ -52,6 +52,20 @@ def export_meta(positions, world_config, layout_config, output_path, seed=None):
             for x, y in positions
         ],
     }
+
+    if start_goal_anchors is not None:
+        metadata['start_goal'] = {
+            'start_xy': [
+                float(start_goal_anchors['start_xy'][0]),
+                float(start_goal_anchors['start_xy'][1]),
+            ],
+            'goal_xy': [
+                float(start_goal_anchors['goal_xy'][0]),
+                float(start_goal_anchors['goal_xy'][1]),
+            ],
+            'tree_exclusion_radius': float(start_goal_anchors['exclusion_radius']),
+            'removed_objects': int(start_goal_anchors['removed_objects']),
+        }
 
     with open(output_path, 'w') as f:
         json.dump(metadata, f, indent=2)

@@ -72,10 +72,17 @@ import json
 import random
 import math
 
-# Read area_size from meta.json
+# Read metadata from meta.json
 with open('$META_FILE', 'r') as f:
     meta = json.load(f)
-    area_size = meta['world']['area_size']
+
+start_goal = meta.get('start_goal')
+if isinstance(start_goal, dict) and isinstance(start_goal.get('start_xy'), list) and len(start_goal.get('start_xy')) >= 2:
+    sx, sy = start_goal['start_xy'][:2]
+    print(f\"{float(sx):.2f} {float(sy):.2f} {float($HEIGHT):.2f}\")
+    raise SystemExit(0)
+
+area_size = meta['world']['area_size']
 
 # Calculate edge spawn
 margin = $MARGIN

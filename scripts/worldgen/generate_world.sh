@@ -3,10 +3,7 @@
 # Script to generate a random forest world
 # Usage: ./generate_world.sh [config_file] [--seed SEED]
 #
-# The config can be either:
-#   - a worldgen_run.yaml  (references world + layout configs)
-#   - a legacy world.default.yaml  (single-file, no layout)
-# remember that worldgen_run references world.default
+# Config should be a worldgen_run.yaml (references world + optional layout configs)
 
 # Get the directory where this script is located
 SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
@@ -19,10 +16,15 @@ if [ ! -f "$CONFIG_FILE" ]; then
     exit 1
 fi
 
+PYTHON="${PROJECT_ROOT}/.venv/bin/python"
+if [ ! -f "$PYTHON" ]; then
+    PYTHON="python3"
+fi
+
 echo "Generating world from config: $CONFIG_FILE"
 
 # build command, seed optional
-CMD="python3 -m worldgen.forest_worldgen.generate_world \"$CONFIG_FILE\""
+CMD="$PYTHON -m forest_worldgen.generate_world \"$CONFIG_FILE\""
 
 # check if seed is provided
 if [ "$2" = "--seed" ] && [ -n "$3" ]; then

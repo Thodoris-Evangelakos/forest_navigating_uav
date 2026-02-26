@@ -136,9 +136,6 @@ Outputs go to `worldgen/outputs/latest/` and optionally to timestamped run direc
 # Default mixed zones layout
 ./scripts/worldgen/generate_world.sh
 
-# Legacy single-zone (backward compatible)
-./scripts/worldgen/generate_world.sh configs/worldgen/world.default.yaml
-
 # Reproducible generation
 ./scripts/worldgen/generate_world.sh configs/worldgen/worldgen_run.yaml --seed 42
 

@@ -1,4 +1,4 @@
-.PHONY: setup venv-rebuild verify worldgen worldgen-run rl-train rl-resume rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
+.PHONY: setup venv-rebuild verify worldgen worldgen-run gazebo-world gazebo-spawn-uav gazebo-agent gazebo-stop rl-train rl-resume rl-eval rl-tensorboard rl-visualize rl-compare rl-trajectories rl-gazebo-demo clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
@@ -10,6 +10,11 @@ TB_PORT ?= 6006
 MODEL ?=
 NUM_EPISODES ?= 5
 DEVICE ?= cuda
+WORLD_CONFIG ?= configs/worldgen/worldgen_run.yaml
+WORLD_SEED ?= 42
+SPAWN_INDEX ?= 0
+SPAWN_MARGIN ?= 1.0
+SPAWN_HEIGHT ?= 2.0
 
 help:
 	@echo "Forest Navigating UAV - Development Makefile"
@@ -20,6 +25,10 @@ help:
 	@echo "  verify      - Test imports and environment setup"
 	@echo "  worldgen    - Generate a forest world with seed 42"
 	@echo "  worldgen-run - Generate world and launch Gazebo"
+	@echo "  gazebo-world - Generate world and launch Gazebo (WORLD_CONFIG=... WORLD_SEED=...)"
+	@echo "  gazebo-spawn-uav - Spawn UAV into running Gazebo using latest world (SPAWN_INDEX=... SPAWN_MARGIN=... SPAWN_HEIGHT=...)"
+	@echo "  gazebo-agent - Start ROS-Gazebo bridge and run policy control (MODEL=... NUM_EPISODES=...)"
+	@echo "  gazebo-stop - Stop all Gazebo/bridge background processes"
 	@echo "  rl-train    - Train SAC policy (override RL_CONFIG=... DEVICE=...)"
 	@echo "  rl-resume   - Resume from run (override RUN=... RESUME_CONFIG=... DEVICE=...)"
 	@echo "  rl-eval     - Evaluate trained policy (requires MODEL=..., override DEVICE=...)"
@@ -27,7 +36,7 @@ help:
 	@echo "  rl-visualize - Build single-run report (latest if RUN is empty)"
 	@echo "  rl-compare  - Build multi-run comparison report"
 	@echo "  rl-trajectories - Visualize trajectories (MODEL=..., TRAJ_CONFIG=... optional, DEVICE=...)"
-	@echo "  rl-gazebo-demo - Launch Gazebo, run demo with latest model (override MODEL=... NUM_EPISODES=...)"
+	@echo "  rl-gazebo-demo - Launch Gazebo (paused by default), run demo (override MODEL=... NUM_EPISODES=... GAZEBO_PAUSED_START=0)"
 	@echo "  clean       - Remove venv, caches, and generated outputs"
 	@echo "  help        - Show this help message"
 
@@ -58,7 +67,27 @@ worldgen:
 	./scripts/worldgen/generate_world.sh configs/worldgen/worldgen_run.yaml --seed 42
 
 worldgen-run:
-	./scripts/worldgen/generate_world_and_run.sh --seed 42
+	./scripts/worldgen/generate_world_and_run.sh configs/worldgen/worldgen_run.yaml --seed 42
+
+gazebo-world:
+	./scripts/worldgen/generate_world_and_run.sh $(WORLD_CONFIG) --seed $(WORLD_SEED)
+
+gazebo-spawn-uav:
+	./scripts/worldgen/spawn_uav.sh worldgen/outputs/latest/world.sdf --index $(SPAWN_INDEX) --margin $(SPAWN_MARGIN) --height $(SPAWN_HEIGHT)
+
+gazebo-agent:
+	bash ./scripts/rl/gazebo_agent_bridge.sh "$(MODEL)" $(NUM_EPISODES)
+
+gazebo-stop:
+	@echo "Stopping Gazebo and ROS-Gazebo bridge processes..."
+	@pkill -f 'gz sim' 2>/dev/null || true
+	@pkill -f 'ros_gz_bridge|parameter_bridge' 2>/dev/null || true
+	@pkill -f 'ros_gz_sim create' 2>/dev/null || true
+	@sleep 1
+	@pkill -9 -f 'gz sim' 2>/dev/null || true
+	@pkill -9 -f 'ros_gz_bridge|parameter_bridge' 2>/dev/null || true
+	@pkill -9 -f 'ros_gz_sim create' 2>/dev/null || true
+	@echo "✓ Gazebo processes stopped"
 
 rl-train:
 	@if [ -n "$(DEVICE)" ]; then \

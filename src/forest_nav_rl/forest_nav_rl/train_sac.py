@@ -217,17 +217,14 @@ def main():
             "Use fastsim for training and gazebo for rollout/visualization."
         )
 
-    # Enforce hybrid control mode for all new training runs.
-    # Legacy 'velocity' mode is permitted for evaluation of old checkpoints only.
+    # Enforce hybrid control mode for all training runs.
     _raw_params = cfg.get("env", {}).get("env_kwargs", {}).get("params", {})
-    _action_mode = _raw_params.get("action_mode", "velocity")
+    _action_mode = _raw_params.get("action_mode", "hybrid")
     if _action_mode != "hybrid":
         raise ValueError(
             f"Training requires action_mode='hybrid' in env.env_kwargs.params "
             f"(got '{_action_mode}'). "
-            "Set `action_mode: hybrid` in your training config. "
-            "The legacy 'velocity' mode is only supported when evaluating "
-            "checkpoints trained before this change."
+            "Set `action_mode: hybrid` in your training config."
         )
 
     exp_name = cfg["experiment"]["name"]

@@ -12,6 +12,7 @@ from gymnasium import spaces
 from fastsim_forest_nav.envs.forest_nav_env import (
     SimParams,
     _accel_limit_velocity,
+    _map_normalized_accel,
     _approach_speed_cap,
     _effective_drone_radius,
     _soft_clearance_margin,
@@ -31,7 +32,7 @@ class GazeboParams(SimParams):
     """
     odom_topic: str = "/odom"
     scan_topic: str = "/scan"
-    cmd_vel_topic: str = "/cmd_vel"
+    cmd_vel_topic: str = "/model/uav1/cmd_vel"
     use_sim_reset_service: bool = False
     reset_service_name: str = "/reset_simulation"
     spin_timeout_sec: float = 2.0
@@ -48,6 +49,12 @@ class GazeboForestNavEnv(gym.Env):
         super().__init__()
         self.p = params
         self.render_mode = render_mode
+
+        if self.p.action_mode != "hybrid":
+            raise ValueError(
+                f"Unsupported action_mode='{self.p.action_mode}'. "
+                "Only action_mode='hybrid' is supported."
+            )
 
         obs_dim = self.p.lidar_num_beams + 6
         self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
@@ -414,6 +421,36 @@ class GazeboForestNavEnv(gym.Env):
         ], dtype=np.float32)
         return fallback.astype(np.float32)
 
+    def _action_to_velocity_command(
+        self,
+        action: np.ndarray,
+    ) -> tuple[float, float, float, int]:
+        """Convert normalized action to velocity command locally via acceleration integration.
+
+        Gazebo listens to velocity commands on ``/cmd_vel``. To keep control dynamics
+        acceleration-based, we integrate acceleration against the current measured
+        (or last commanded) velocity state inside the environment, then publish the
+        resulting velocity command.
+
+        Returns ``(cmd_v, cmd_wz, cmd_vz, accel_clipped)``.
+        """
+        accel_v = _map_normalized_accel(float(action[0]), self.p.accel_v_max, self.p.decel_v_max)
+        accel_wz = _map_normalized_accel(float(action[1]), self.p.accel_wz_max, self.p.decel_wz_max)
+        accel_vz = _map_normalized_accel(float(action[2]), self.p.accel_vz_max, self.p.decel_vz_max)
+
+        pre_clip_v = float(self.v) + accel_v * float(self.p.dt)
+        pre_clip_wz = float(self.wz) + accel_wz * float(self.p.dt)
+        pre_clip_vz = float(self.vz) + accel_vz * float(self.p.dt)
+
+        cmd_v = float(np.clip(pre_clip_v, -self.p.v_max, self.p.v_max))
+        cmd_wz = float(np.clip(pre_clip_wz, -self.p.wz_max, self.p.wz_max))
+        cmd_vz = float(np.clip(pre_clip_vz, -self.p.vz_max, self.p.vz_max))
+        accel_clipped = int(
+            (cmd_v != pre_clip_v) or (cmd_wz != pre_clip_wz) or (cmd_vz != pre_clip_vz)
+        )
+
+        return cmd_v, cmd_wz, cmd_vz, accel_clipped
+
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
         super().reset(seed=seed)
         self._t = 0.0
@@ -441,9 +478,13 @@ class GazeboForestNavEnv(gym.Env):
     def step(self, action: np.ndarray):
         action = np.asarray(action, dtype=np.float32)
 
-        cmd_v = float(action[0]) * self.p.v_max
-        cmd_wz = float(action[1]) * self.p.wz_max
-        cmd_vz = float(action[2]) * self.p.vz_max
+        # start each control step from measured state when available
+        if self._have_odom_twist:
+            self.v = self._odom_v
+            self.wz = self._odom_wz
+            self.vz = self._odom_vz
+
+        cmd_v, cmd_wz, cmd_vz, accel_clipped = self._action_to_velocity_command(action)
 
         lidar_ranges, lidar_angles = self._resample_lidar()
         safe_v, safe_wz, safe_vz, shield_active, shield_delta = self._apply_lidar_shield(
@@ -453,34 +494,33 @@ class GazeboForestNavEnv(gym.Env):
             lidar_ranges,
             lidar_angles,
         )
-
-        # hybrid dynamics: rate-limit velocity command using stored state before publish
-        if self.p.action_mode == "hybrid":
-            applied_v, clip_v = _accel_limit_velocity(
-                safe_v,
-                self.v,
-                self.p.accel_v_max,
-                self.p.dt,
-                self.p.decel_v_max,
-            )
-            applied_wz, clip_wz = _accel_limit_velocity(
-                safe_wz,
-                self.wz,
-                self.p.accel_wz_max,
-                self.p.dt,
-                self.p.decel_wz_max,
-            )
-            applied_vz, clip_vz = _accel_limit_velocity(
-                safe_vz,
-                self.vz,
-                self.p.accel_vz_max,
-                self.p.dt,
-                self.p.decel_vz_max,
-            )
-            accel_clipped = int(clip_v or clip_wz or clip_vz)
-        else:
-            applied_v, applied_wz, applied_vz = float(safe_v), float(safe_wz), float(safe_vz)
-            accel_clipped = 0
+        applied_v, slew_clipped_v = _accel_limit_velocity(
+            desired=float(safe_v),
+            current=float(self.v),
+            accel_max=float(self.p.accel_v_max),
+            dt=float(self.p.dt),
+            decel_max=float(self.p.decel_v_max),
+        )
+        applied_wz, slew_clipped_wz = _accel_limit_velocity(
+            desired=float(safe_wz),
+            current=float(self.wz),
+            accel_max=float(self.p.accel_wz_max),
+            dt=float(self.p.dt),
+            decel_max=float(self.p.decel_wz_max),
+        )
+        applied_vz, slew_clipped_vz = _accel_limit_velocity(
+            desired=float(safe_vz),
+            current=float(self.vz),
+            accel_max=float(self.p.accel_vz_max),
+            dt=float(self.p.dt),
+            decel_max=float(self.p.decel_vz_max),
+        )
+        accel_clipped = int(
+            bool(accel_clipped)
+            or slew_clipped_v
+            or slew_clipped_wz
+            or slew_clipped_vz
+        )
 
         self._publish_cmd(applied_v, applied_wz, applied_vz)
         # optimistic model-based state; will be overridden by odom feedback below

@@ -68,7 +68,7 @@
         <always_on>true</always_on>
         <update_rate>20</update_rate>
         <visualize>true</visualize>
-        <topic>scan</topic>
+        <topic>/scan</topic>
         <ray>
           <scan>
             <horizontal>
@@ -101,11 +101,12 @@
 
     <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::v8::systems::OdometryPublisher">
       <odom_publish_frequency>50</odom_publish_frequency>
-      <odom_topic>odom</odom_topic>
-      <tf_topic>tf</tf_topic>
+      <odom_topic>/odom</odom_topic>
+      <tf_topic>/tf</tf_topic>
     </plugin>
 
     <plugin filename="gz-sim-velocity-control-system" name="gz::sim::v8::systems::VelocityControl">
+      <cmd_vel_topic>/cmd_vel</cmd_vel_topic>
       <initial_linear_velocity_x>0.0</initial_linear_velocity_x>
       <initial_linear_velocity_y>0.0</initial_linear_velocity_y>
       <initial_linear_velocity_z>0.0</initial_linear_velocity_z>
