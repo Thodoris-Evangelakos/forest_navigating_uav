@@ -113,7 +113,7 @@ def sample_csr(count, region, K, min_distance, existing_positions, params):
         Rectangular sub-region ``{x_min, x_max, y_min, y_max}`` or *None*
         for the full K*K world.
     K : float
-        World side length (domain is ``[-K/2, K/2]²``).
+        World side length (domain is ``[-K/2, K/2]**2``).
     min_distance : float
         World-level minimum distance — **ignored by default** for CSR so
         the pattern stays interaction-free.  Use ``params['overlap_guard']``

@@ -35,6 +35,7 @@ env:
       reward_truncation_penalty: 1.0
       reward_yaw_rate_scale: 0.03
       reward_stall_penalty: 0.05
+      reward_accel_clip_penalty: 0.05
       progress_stall_threshold: 0.02
       yaw_penalty_speed_gate: 0.25
       shield_floor_z_min: 0.05
@@ -56,9 +57,12 @@ env:
 
       # dynamics control mode: mirror the fastsim hybrid settings for parity.
       action_mode: hybrid
-      accel_v_max: 3.0    # m/s²
-      accel_wz_max: 2.0   # rad/s²
-      accel_vz_max: 1.5   # m/s²
+      accel_v_max: 3.0    # m/s**2
+      accel_wz_max: 2.0   # rad/s**2
+      accel_vz_max: 1.5   # m/s**2
+      decel_v_max: 6.0    # m/s**2
+      decel_wz_max: 3.0   # rad/s**2
+      decel_vz_max: 2.5   # m/s**2
 
 training:
   n_envs: 1

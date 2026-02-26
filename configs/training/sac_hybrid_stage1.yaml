@@ -1,14 +1,14 @@
 experiment:
-  name: sac_fastsim
+  name: sac_fastsim_hybrid_stage1
   runs_dir: outputs/runs
   seed: 42
-  total_timesteps: 10_000_000
+  total_timesteps: 3_000_000
 
 env:
   env_kwargs:
     params:
       dt: 0.1
-      lidar_num_beams: 90   # fewer beams = faster CPU stepping
+      lidar_num_beams: 90
       lidar_range_max: 30.0
       v_max: 6.0
       wz_max: 2.5
@@ -25,24 +25,23 @@ env:
       reward_progress_scale: 5.0
       reward_speed_scale: 0.02
       reward_step_penalty: 0.02
-      reward_proximity_scale: 0.35
+      reward_proximity_scale: 0.25
       reward_shield_penalty: 0.02
-      reward_collision_penalty: 20.0
+      reward_collision_penalty: 15.0
       reward_success_bonus: 20.0
       reward_truncation_penalty: 8.0
       reward_yaw_rate_scale: 0.03
       reward_stall_penalty: 0.05
-      reward_accel_clip_penalty: 0.05
+      reward_accel_clip_penalty: 0.03
 
       progress_stall_threshold: 0.02
       yaw_penalty_speed_gate: 0.25
       shield_yaw_damping: 0.35
-      shield_lookahead_margin: 2.5
+      shield_lookahead_margin: 2.0
       shield_floor_z_min: 0.05
+
       worldgen_config_relpath: configs/worldgen/worldgen_run.yaml
       worldgen_seed_offset: 0
-      worldgen_resample_every_n_episodes: 1  # increase to 2-4 for faster training resets
-      worldgen_verbose: false                # keep false during training to reduce I/O
       tree_radius_mean: 0.14
       tree_radius_std: 0.03
       tree_radius_min: 0.08
@@ -51,16 +50,13 @@ env:
       min_start_goal_distance: 8.0
       spawn_max_attempts: 500
 
-      # dynamics control mode: "hybrid" applies acceleration limits before integration
-      # so the policy must plan a smooth velocity trajectory (better sim-to-real transfer).
-      # Use "velocity" only for eval of previously trained models
       action_mode: hybrid
-      accel_v_max: 4.5    # m/s**2: easier early learning under hybrid dynamics
-      accel_wz_max: 3.0   # rad/s**2
-      accel_vz_max: 2.0   # m/s**2
-      decel_v_max: 9.0    # m/s**2: stronger braking than acceleration
-      decel_wz_max: 4.5   # rad/s**2
-      decel_vz_max: 3.0   # m/s**2
+      accel_v_max: 5.0
+      accel_wz_max: 3.5
+      accel_vz_max: 2.5
+      decel_v_max: 10.0
+      decel_wz_max: 5.0
+      decel_vz_max: 4.0
 
 training:
   n_envs: 16
@@ -84,15 +80,15 @@ sac:
   learning_rate: 0.0003
   buffer_size: 1_000_000
   learning_starts: 10_000
-  batch_size: 1024         # larger batches for better GPU utilization
+  batch_size: 1024
   tau: 0.005
   gamma: 0.99
-  train_freq: 4            # collect 4 steps before updating
-  gradient_steps: 8        # 4 gradient steps per train_freq
+  train_freq: 4
+  gradient_steps: 8
   ent_coef: auto
   target_update_interval: 1
   verbose: 1
   policy_kwargs:
-    net_arch: [512, 512]   # larger network for more GPU work
+    net_arch: [512, 512]
 
 save_vecnorm: true

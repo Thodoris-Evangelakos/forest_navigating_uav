@@ -28,7 +28,7 @@ def _nn_distances(positions):
     """Return list of nearest-neighbour distances.
     
     Uses scipy KDTree for O(n log n) when available, falls back to
-    brute-force O(n²) otherwise.
+    brute-force O(n**2) otherwise.
     """
     n = len(positions)
     if n < 2:

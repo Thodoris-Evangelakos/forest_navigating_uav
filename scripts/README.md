@@ -123,7 +123,7 @@ Generate world, launch Gazebo, and spawn UAV - all in one step.
 
 ## World Coordinate System
 
-The world is a square spanning `[-K/2, K/2]²` where `K` is the `area_size` from config:
+The world is a square spanning `[-K/2, K/2]**2` where `K` is the `area_size` from config:
 
 - **World config**: `area_size: 50` → world spans `[-25, 25]` in both x and y
 - **Edges with margin=1.0**: spawn at `-24` to `24` in both x and y

@@ -1,0 +1,1 @@
+The model outputs acceleration commands, as if it were a flying saucer. I need to change it to a higher fidelity model, maybe using flightmare

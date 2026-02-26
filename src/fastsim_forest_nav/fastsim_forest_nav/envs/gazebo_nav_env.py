@@ -9,7 +9,14 @@ import gymnasium as gym
 import numpy as np
 from gymnasium import spaces
 
-from fastsim_forest_nav.envs.forest_nav_env import SimParams, _accel_limit_velocity
+from fastsim_forest_nav.envs.forest_nav_env import (
+    SimParams,
+    _accel_limit_velocity,
+    _approach_speed_cap,
+    _effective_drone_radius,
+    _soft_clearance_margin,
+    _protected_radius,
+)
 
 
 @dataclass
@@ -315,8 +322,12 @@ class GazeboForestNavEnv(gym.Env):
             boundary_front = self._distance_to_world_boundary_along_motion(safe_v)
             front_min = min(front_min, boundary_front)
 
-            # limit speed so next step cannot penetrate safety radius
-            v_clearance_cap = max(0.0, (front_min - self.p.r_safe) / max(self.p.dt, 1e-4))
+            v_decel_cap = float(self.p.decel_v_max) if float(self.p.decel_v_max) > 0.0 else float(self.p.accel_v_max)
+
+            # dynamics-aware speed cap so one-step travel + braking distance stays safe
+            protected_radius = _protected_radius(self.p)
+            gap = max(0.0, front_min - protected_radius)
+            v_clearance_cap = _approach_speed_cap(gap, v_decel_cap, self.p.dt)
 
             # time-to-collision cap for better dampening at speed
             v_ttc_cap = max(0.0, front_min / max(self.p.shield_ttc_threshold_sec, 1e-3))
@@ -350,10 +361,11 @@ class GazeboForestNavEnv(gym.Env):
         return info
 
     def _sample_xy_in_bounds(self, x_bounds: tuple[float, float], y_bounds: tuple[float, float]) -> np.ndarray:
-        x_lo = float(max(-self._world_half_extent, min(x_bounds[0], x_bounds[1])))
-        x_hi = float(min(self._world_half_extent, max(x_bounds[0], x_bounds[1])))
-        y_lo = float(max(-self._world_half_extent, min(y_bounds[0], y_bounds[1])))
-        y_hi = float(min(self._world_half_extent, max(y_bounds[0], y_bounds[1])))
+        half = self._effective_world_half_extent()
+        x_lo = float(max(-half, min(x_bounds[0], x_bounds[1])))
+        x_hi = float(min(half, max(x_bounds[0], x_bounds[1])))
+        y_lo = float(max(-half, min(y_bounds[0], y_bounds[1])))
+        y_hi = float(min(half, max(y_bounds[0], y_bounds[1])))
 
         if x_lo >= x_hi or y_lo >= y_hi:
             return np.array([0.0, 0.0], dtype=np.float32)
@@ -366,7 +378,7 @@ class GazeboForestNavEnv(gym.Env):
         if not self.p.randomize_goal_on_reset:
             return np.asarray(self.p.fixed_goal, dtype=np.float32)
 
-        half = float(self._world_half_extent)
+        half = float(self._effective_world_half_extent())
         band_inner = 0.55 * half
 
         start_xy = self.pos[:2].astype(np.float32)
@@ -444,9 +456,27 @@ class GazeboForestNavEnv(gym.Env):
 
         # hybrid dynamics: rate-limit velocity command using stored state before publish
         if self.p.action_mode == "hybrid":
-            applied_v, clip_v = _accel_limit_velocity(safe_v, self.v, self.p.accel_v_max, self.p.dt)
-            applied_wz, clip_wz = _accel_limit_velocity(safe_wz, self.wz, self.p.accel_wz_max, self.p.dt)
-            applied_vz, clip_vz = _accel_limit_velocity(safe_vz, self.vz, self.p.accel_vz_max, self.p.dt)
+            applied_v, clip_v = _accel_limit_velocity(
+                safe_v,
+                self.v,
+                self.p.accel_v_max,
+                self.p.dt,
+                self.p.decel_v_max,
+            )
+            applied_wz, clip_wz = _accel_limit_velocity(
+                safe_wz,
+                self.wz,
+                self.p.accel_wz_max,
+                self.p.dt,
+                self.p.decel_wz_max,
+            )
+            applied_vz, clip_vz = _accel_limit_velocity(
+                safe_vz,
+                self.vz,
+                self.p.accel_vz_max,
+                self.p.dt,
+                self.p.decel_vz_max,
+            )
             accel_clipped = int(clip_v or clip_wz or clip_vz)
         else:
             applied_v, applied_wz, applied_vz = float(safe_v), float(safe_wz), float(safe_vz)
@@ -476,7 +506,9 @@ class GazeboForestNavEnv(gym.Env):
         tree_min_range = float(np.min(lidar_ranges))
         boundary_range = self._distance_to_world_boundary()
         min_range = float(min(tree_min_range, boundary_range))
-        collision = int(min_range < self.p.collision_threshold)
+        drone_radius = _effective_drone_radius(self.p)
+        clearance = min_range - drone_radius
+        collision = int(clearance < 0.0)
         success = int(dist < self.p.goal_tolerance)
 
         reward = 0.0
@@ -484,8 +516,12 @@ class GazeboForestNavEnv(gym.Env):
         reward += self.p.reward_speed_scale * (float(self.v) / self.p.v_max)  # use measured/applied velocity
         reward -= self.p.reward_step_penalty
 
-        if min_range < self.p.r_safe:
-            reward -= self.p.reward_proximity_scale * (self.p.r_safe - min_range) / self.p.r_safe
+        if accel_clipped:
+            reward -= self.p.reward_accel_clip_penalty
+
+        soft_margin = _soft_clearance_margin(self.p)
+        if clearance < soft_margin and soft_margin > 1e-6:
+            reward -= self.p.reward_proximity_scale * (soft_margin - clearance) / soft_margin
         if shield_active:
             reward -= self.p.reward_shield_penalty
         if collision:
@@ -508,6 +544,8 @@ class GazeboForestNavEnv(gym.Env):
             success=success,
             shield_delta=shield_delta,
             accel_clipped=accel_clipped,
+            clearance=clearance,
+            drone_radius=drone_radius,
         )
         return obs, float(reward), terminated, truncated, info
 

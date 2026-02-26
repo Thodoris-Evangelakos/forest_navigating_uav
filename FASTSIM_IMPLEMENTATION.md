@@ -40,9 +40,9 @@ Implemented high-performance in-memory world generation for fastsim training tha
 - **Full env.step()**: 0.91 ms/step = 1097 steps/sec
 - **Lidar scan alone**: 563 μs/scan = 1776 scans/sec
 - **Grid build (reset)**: ~1-2 ms for 50 trees
-- **Grid cells**: 14 cells for 50m² world with 15m cell size
+- **Grid cells**: 14 cells for 50m**2 world with 15m cell size
 
-### Dense Scenario (200 trees, 80m² world)
+### Dense Scenario (200 trees, 80m**2 world)
 - **Lidar scan**: 900 μs/scan = 1110 scans/sec
 - **Grid cells**: 36 cells with 15m cell size
 - **Query filtering**: Corner position sees 84/200 trees, center sees 153/200

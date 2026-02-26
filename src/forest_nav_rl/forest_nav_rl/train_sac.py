@@ -68,11 +68,18 @@ class SafetyMetricsCallback(BaseCallback):
 
 class FinalModelCallback(BaseCallback):
     """Periodically saves current model to final/ directory."""
-    def __init__(self, save_path: Path, save_freq: int, save_vecnormalize: bool = False):
+    def __init__(
+        self,
+        save_path: Path,
+        save_freq: int,
+        save_vecnormalize: bool = False,
+        save_replay_buffer: bool = True,
+    ):
         super().__init__()
         self.save_path = Path(save_path)
         self.save_freq = save_freq
         self.save_vecnormalize = save_vecnormalize
+        self.save_replay_buffer = save_replay_buffer
 
     def _on_step(self) -> bool:
         if self.n_calls % self.save_freq == 0:
@@ -85,11 +92,12 @@ class FinalModelCallback(BaseCallback):
     def _save_model(self) -> None:
         model_path = self.save_path / "sac_final_model.zip"
         self.model.save(str(model_path))
-        
-        rb_path = self.save_path / "replay_buffer.pkl"
-        save_rb = getattr(self.model, "save_replay_buffer", None)
-        if callable(save_rb):
-            save_rb(str(rb_path))
+
+        if self.save_replay_buffer:
+            rb_path = self.save_path / "replay_buffer.pkl"
+            save_rb = getattr(self.model, "save_replay_buffer", None)
+            if callable(save_rb):
+                save_rb(str(rb_path))
         
         if self.save_vecnormalize and isinstance(self.training_env, VecNormalize):
             norm_path = self.save_path / "vecnormalize.pkl"
@@ -287,10 +295,15 @@ def main():
         eval_env.training = False
         eval_env.norm_reward = False
 
-    # callbacks (checkpoints + eval)
+    # callbacks
+    save_checkpoints = bool(cfg["training"].get("save_checkpoints", True))
+
     # CheckpointCallback can save replay buffer and VecNormalize stats if needed
     save_freq = cfg["training"].get("checkpoint_freq_step", 10000)
     save_freq = max(save_freq // n_envs, 1)  # adjust for number of envs
+
+    final_snapshot_freq_step = int(cfg["training"].get("final_snapshot_freq_step", save_freq * n_envs))
+    final_snapshot_freq = max(final_snapshot_freq_step // n_envs, 1) if final_snapshot_freq_step > 0 else 0
 
     save_vecnorm_cfg = cfg.get("save_vecnorm", False)
     if isinstance(save_vecnorm_cfg, dict):
@@ -301,13 +314,15 @@ def main():
     # Allow disabling replay buffer saves in checkpoints (heavy I/O)
     save_replay_buffer = cfg["training"].get("save_replay_buffer", True)
 
-    checkpoint_cb = CheckpointCallback(
-        save_freq=save_freq,
-        save_path=str(run_dir / "checkpoints"),
-        name_prefix="sac_checkpoint",
-        save_replay_buffer=save_replay_buffer,
-        save_vecnormalize=save_vecnormalize
-    )
+    checkpoint_cb = None
+    if save_checkpoints:
+        checkpoint_cb = CheckpointCallback(
+            save_freq=save_freq,
+            save_path=str(run_dir / "checkpoints"),
+            name_prefix="sac_checkpoint",
+            save_replay_buffer=save_replay_buffer,
+            save_vecnormalize=save_vecnormalize
+        )
 
     eval_freq = int(cfg["logging"]["eval_freq_step"])
     eval_freq = max(eval_freq // n_envs, 1)  # adjust for number of envs
@@ -324,11 +339,14 @@ def main():
 
     safety_cb = SafetyMetricsCallback(log_every_steps=int(cfg["logging"].get("metrics_log_freq_step", 1_000)))
 
-    final_model_cb = FinalModelCallback(
-        save_path=run_dir / "final",
-        save_freq=save_freq,
-        save_vecnormalize=save_vecnormalize
-    )
+    final_model_cb = None
+    if final_snapshot_freq > 0:
+        final_model_cb = FinalModelCallback(
+            save_path=run_dir / "final",
+            save_freq=final_snapshot_freq,
+            save_vecnormalize=save_vecnormalize,
+            save_replay_buffer=save_replay_buffer,
+        )
 
     # SAC model - either load from checkpoint or create new
     sac_cfg = cfg["sac"]
@@ -386,9 +404,15 @@ def main():
 
     interrupted = False
     try:
+        callbacks = [eval_cb, safety_cb, interrupt_cb]
+        if checkpoint_cb is not None:
+            callbacks.append(checkpoint_cb)
+        if final_model_cb is not None:
+            callbacks.append(final_model_cb)
+
         model.learn(
             total_timesteps=total_timesteps,
-            callback=[checkpoint_cb, eval_cb, safety_cb, final_model_cb, interrupt_cb],
+            callback=callbacks,
             progress_bar=True
         )
     except KeyboardInterrupt:
@@ -400,8 +424,9 @@ def main():
     model.save(str(model_path))
 
     # explicitly save replay buffer
-    rb_path = run_dir / "final" / "replay_buffer.pkl"
-    model.save_replay_buffer(str(rb_path))
+    if save_replay_buffer:
+        rb_path = run_dir / "final" / "replay_buffer.pkl"
+        model.save_replay_buffer(str(rb_path))
 
     # save VecNormalize stats if applicable
     if isinstance(train_env, VecNormalize):

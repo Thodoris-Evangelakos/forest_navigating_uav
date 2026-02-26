@@ -63,14 +63,24 @@ class SimParams:
     start_goal_clearance: float
     min_start_goal_distance: float
     spawn_max_attempts: int
+    worldgen_resample_every_n_episodes: int = field(default=1)
+    worldgen_verbose: bool = field(default=False)
+    start_goal_tree_exclusion_radius: float = field(default=3.0)
 
     # dynamics control mode
     # "velocity" = legacy direct assignment (backward-compat for old checkpoints/eval)
     # "hybrid"   = first-order acceleration limiting (use for all new training)
     action_mode: str = field(default="velocity")
-    accel_v_max: float = field(default=3.0)   # m/s²  – max forward/backward accel
-    accel_wz_max: float = field(default=2.0)  # rad/s² – max yaw accel
-    accel_vz_max: float = field(default=1.5)  # m/s²  – max vertical accel
+    accel_v_max: float = field(default=3.0)   # m/s**2  – max forward/backward accel
+    accel_wz_max: float = field(default=2.0)  # rad/s**2 – max yaw accel
+    accel_vz_max: float = field(default=1.5)  # m/s**2  – max vertical accel
+    decel_v_max: float = field(default=0.0)   # m/s**2  – max forward/backward decel (<=0 uses accel_v_max)
+    decel_wz_max: float = field(default=0.0)  # rad/s**2 – max yaw decel (<=0 uses accel_wz_max)
+    decel_vz_max: float = field(default=0.0)  # m/s**2  – max vertical decel (<=0 uses accel_vz_max)
+    # UAV body radius used for geometric collision/clearance checks.
+    # When <= 0, falls back to collision_threshold for backward compatibility.
+    drone_radius: float = field(default=0.0)
+    reward_accel_clip_penalty: float = field(default=0.0)
     boundary_margin: float = field(default=1.0)  # virtual wall offset from world border
 
 
@@ -79,6 +89,7 @@ def _accel_limit_velocity(
     current: float,
     accel_max: float,
     dt: float,
+    decel_max: float | None = None,
 ) -> tuple:
     """Rate-limit a velocity setpoint with an acceleration constraint.
 
@@ -87,11 +98,46 @@ def _accel_limit_velocity(
     """
     if accel_max <= 0.0:
         return float(desired), False
-    max_delta = accel_max * dt
+
+    effective_decel = float(decel_max) if decel_max is not None and float(decel_max) > 0.0 else float(accel_max)
+    accel_step = float(accel_max) * float(dt)
+    decel_step = float(effective_decel) * float(dt)
+
     delta = float(desired) - float(current)
-    clipped = abs(delta) > max_delta
-    applied = float(current) + float(np.clip(delta, -max_delta, max_delta))
+    if delta >= 0.0:
+        clipped = delta > accel_step
+        applied = float(current) + float(np.clip(delta, 0.0, accel_step))
+    else:
+        clipped = abs(delta) > decel_step
+        applied = float(current) + float(np.clip(delta, -decel_step, 0.0))
+
     return applied, clipped
+
+
+def _approach_speed_cap(gap: float, decel_max: float, dt: float) -> float:
+    """Max approach speed such that one-step travel plus braking distance stays within gap.
+
+    Solves v*dt + v^2/(2*a) <= gap for v >= 0.
+    """
+    g = float(max(gap, 0.0))
+    a = float(max(decel_max, 1e-6))
+    d = float(max(dt, 1e-6))
+    return float(max(0.0, -a * d + np.sqrt((a * d) ** 2 + 2.0 * a * g)))
+
+
+def _effective_drone_radius(params: SimParams) -> float:
+    configured = float(getattr(params, "drone_radius", 0.0))
+    if configured > 0.0:
+        return configured
+    return float(params.collision_threshold)
+
+
+def _soft_clearance_margin(params: SimParams) -> float:
+    return float(max(0.0, float(params.r_safe) - _effective_drone_radius(params)))
+
+
+def _protected_radius(params: SimParams) -> float:
+    return _effective_drone_radius(params) + _soft_clearance_margin(params)
 
 
 class ForestNavEnv(gym.Env):
@@ -143,6 +189,7 @@ class ForestNavEnv(gym.Env):
         self._prev_dist: Optional[float] = None # last distance, can use to calculate delta
         self._world_half_extent = float(self.p.world_radius)
         self._last_worldgen_seed: Optional[int] = None
+        self._episode_counter: int = 0
 
         # full 360 deg lidar beam geometry (relative to body x-axis)
         self._beam_angle_start = -np.pi
@@ -269,12 +316,29 @@ class ForestNavEnv(gym.Env):
         super().reset(seed=seed)
         self._t = 0.0
         self._step_count = 0
+        self._episode_counter += 1
 
         # Sample world, start, goal
-        self.trees = self._sample_forest()
-        self._build_tree_grid()
-        self.pos, self.yaw = self._sample_start_pose()
-        self.goal = self._sample_goal_pose()
+        resample_every = max(1, int(getattr(self.p, "worldgen_resample_every_n_episodes", 1)))
+        should_resample_world = (
+            self.trees is None
+            or ((self._episode_counter - 1) % resample_every == 0)
+        )
+
+        start_xy_anchor: np.ndarray | None = None
+        goal_xy_anchor: np.ndarray | None = None
+        if should_resample_world:
+            start_xy_anchor, goal_xy_anchor = self._sample_start_goal_anchors()
+            exclusion_radius = float(max(0.0, self.p.start_goal_tree_exclusion_radius))
+            exclusion_centers = np.stack([start_xy_anchor, goal_xy_anchor], axis=0)
+            self.trees = self._sample_forest(
+                exclusion_centers=exclusion_centers,
+                exclusion_radius=exclusion_radius,
+            )
+            self._build_tree_grid()
+
+        self.pos, self.yaw = self._sample_start_pose(preferred_xy=start_xy_anchor)
+        self.goal = self._sample_goal_pose(preferred_xy=goal_xy_anchor)
         self.z_target = np.float32(self.p.default_z_target)
 
         # standing still
@@ -303,9 +367,27 @@ class ForestNavEnv(gym.Env):
 
         # hybrid dynamics: rate-limit velocity change using stored state
         if self.p.action_mode == "hybrid":
-            applied_v, clip_v = _accel_limit_velocity(float(safe_v), float(self.v), self.p.accel_v_max, self.p.dt)
-            applied_wz, clip_wz = _accel_limit_velocity(float(safe_wz), float(self.wz), self.p.accel_wz_max, self.p.dt)
-            applied_vz, clip_vz = _accel_limit_velocity(float(safe_vz), float(self.vz), self.p.accel_vz_max, self.p.dt)
+            applied_v, clip_v = _accel_limit_velocity(
+                float(safe_v),
+                float(self.v),
+                self.p.accel_v_max,
+                self.p.dt,
+                self.p.decel_v_max,
+            )
+            applied_wz, clip_wz = _accel_limit_velocity(
+                float(safe_wz),
+                float(self.wz),
+                self.p.accel_wz_max,
+                self.p.dt,
+                self.p.decel_wz_max,
+            )
+            applied_vz, clip_vz = _accel_limit_velocity(
+                float(safe_vz),
+                float(self.vz),
+                self.p.accel_vz_max,
+                self.p.dt,
+                self.p.decel_vz_max,
+            )
             accel_clipped = int(clip_v or clip_wz or clip_vz)
             self.v = np.float32(applied_v)
             self.wz = np.float32(applied_wz)
@@ -333,7 +415,10 @@ class ForestNavEnv(gym.Env):
         d_progress = prev_dist - dist
         self._prev_dist = dist
 
-        collision = int(min_range < self.p.collision_threshold)
+        drone_radius = _effective_drone_radius(self.p)
+        clearance = min_range - drone_radius
+
+        collision = int(clearance < 0.0)
         success = int(dist < self.p.goal_tolerance)
 
         # Weights saved in the dataclass
@@ -345,6 +430,9 @@ class ForestNavEnv(gym.Env):
         speed_norm = abs(float(applied_v)) / max(float(self.p.v_max), 1e-6)
         yaw_rate_norm = abs(float(applied_wz)) / max(float(self.p.wz_max), 1e-6)
         reward -= self.p.reward_yaw_rate_scale * speed_norm * yaw_rate_norm
+
+        if accel_clipped:
+            reward -= self.p.reward_accel_clip_penalty
 
         if d_progress < self.p.progress_stall_threshold and not success:
             stall_ratio = (self.p.progress_stall_threshold - d_progress) / max(
@@ -364,8 +452,9 @@ class ForestNavEnv(gym.Env):
 
             reward -= stall_penalty
 
-        if min_range < self.p.r_safe:
-            reward -= self.p.reward_proximity_scale * (self.p.r_safe - min_range) / self.p.r_safe # penalty for getting too close to obstacles
+        soft_margin = _soft_clearance_margin(self.p)
+        if clearance < soft_margin and soft_margin > 1e-6:
+            reward -= self.p.reward_proximity_scale * (soft_margin - clearance) / soft_margin # penalty for getting too close to obstacles
         if shield_active:
             reward -= self.p.reward_shield_penalty
         if collision:
@@ -388,6 +477,8 @@ class ForestNavEnv(gym.Env):
             success=success,
             shield_delta=shield_delta,
             accel_clipped=accel_clipped,
+            clearance=clearance,
+            drone_radius=drone_radius,
         )
         return obs, float(reward), terminated, truncated, info
     
@@ -462,6 +553,7 @@ class ForestNavEnv(gym.Env):
         safe_wz = float(wz)
         safe_vz = float(vz)
         shield_active = 0
+        v_decel_cap = float(self.p.decel_v_max) if float(self.p.decel_v_max) > 0.0 else float(self.p.accel_v_max)
 
         # horizontal tree avoidance (query nearby trees only)
         if self.trees is not None and len(self.trees) > 0:
@@ -471,8 +563,10 @@ class ForestNavEnv(gym.Env):
             )
             pos_xy = self.pos[:2].astype(np.float64)
 
-            # max distance UAV can travel this step plus safety bubble
-            lookahead = abs(safe_v) * self.p.dt + self.p.r_safe + self.p.shield_lookahead_margin
+            # dynamic lookahead: one-step motion + stopping distance + safety bubble
+            stopping_distance = (safe_v * safe_v) / max(2.0 * v_decel_cap, 1e-6) if safe_v > 0.0 else 0.0
+            protected_radius = _protected_radius(self.p)
+            lookahead = abs(safe_v) * self.p.dt + stopping_distance + protected_radius + self.p.shield_lookahead_margin
             nearby_idx = self._query_nearby_trees(float(self.pos[0]), float(self.pos[1]), lookahead)
 
             for idx in nearby_idx:
@@ -488,7 +582,8 @@ class ForestNavEnv(gym.Env):
                     shield_active = 1
                     continue
 
-                gap = d - t_r - self.p.r_safe  # remaining clearance
+                protected_radius = _protected_radius(self.p)
+                gap = d - t_r - protected_radius  # remaining clearance
                 c = float(np.dot(vel_dir, delta / d))  # cos(heading, tree dir)
                 approach = safe_v * c  # > 0 when closing distance
 
@@ -498,10 +593,9 @@ class ForestNavEnv(gym.Env):
                         safe_v = 0.0
                         shield_active = 1
                 elif approach > 0.0:
-                    # positive gap but approaching, cap approach speed
-                    v_max_safe = (
-                        gap / (self.p.dt * abs(c)) if abs(c) > 1e-6 else abs(safe_v)
-                    )
+                    # positive gap but approaching, cap approach speed with braking room
+                    v_approach_cap = _approach_speed_cap(gap, v_decel_cap, self.p.dt)
+                    v_max_safe = v_approach_cap / max(abs(c), 1e-6)
                     if abs(safe_v) > v_max_safe:
                         safe_v = float(np.sign(safe_v)) * v_max_safe
                         shield_active = 1
@@ -509,13 +603,14 @@ class ForestNavEnv(gym.Env):
         # world boundary avoidance (virtual walls)
         if abs(safe_v) > 1e-6:
             dist_to_wall = self._distance_to_world_boundary_along_motion(safe_v)
-            gap = dist_to_wall - self.p.r_safe
+            protected_radius = _protected_radius(self.p)
+            gap = dist_to_wall - protected_radius
 
             if gap <= 0.0:
                 safe_v = 0.0
                 shield_active = 1
             else:
-                v_max_safe = gap / max(self.p.dt, 1e-6)
+                v_max_safe = _approach_speed_cap(gap, v_decel_cap, self.p.dt)
                 if abs(safe_v) > v_max_safe:
                     safe_v = float(np.sign(safe_v)) * v_max_safe
                     shield_active = 1
@@ -622,7 +717,11 @@ class ForestNavEnv(gym.Env):
         np.clip(ranges, 0.0, max_range, out=ranges)
         return ranges.astype(np.float32)
     
-    def _sample_forest(self):
+    def _sample_forest(
+        self,
+        exclusion_centers: Optional[np.ndarray] = None,
+        exclusion_radius: float = 0.0,
+    ):
         """ Samples a forest layout using the pure memory API of the worldgen code
 
         Raises:
@@ -685,6 +784,7 @@ class ForestNavEnv(gym.Env):
         positions_xy, world_config, _ = generate_positions_from_config(
             str(config_path),
             seed=episode_seed,
+            verbose=bool(self.p.worldgen_verbose),
         )
 
         area_size = float(world_config['generation']['area_size'])
@@ -701,7 +801,59 @@ class ForestNavEnv(gym.Env):
         ).astype(np.float32)
         radii = np.clip(radii, self.p.tree_radius_min, self.p.tree_radius_max)
 
+        if exclusion_centers is not None and len(exclusion_centers) > 0 and exclusion_radius > 0.0:
+            centers = np.asarray(exclusion_centers, dtype=np.float32)
+            if centers.ndim == 1:
+                centers = centers.reshape(1, 2)
+
+            diff = points_xy[:, None, :] - centers[None, :, :]
+            dist = np.linalg.norm(diff, axis=2)
+            required = radii[:, None] + float(exclusion_radius)
+            keep_mask = np.all(dist >= required, axis=1)
+
+            points_xy = points_xy[keep_mask]
+            radii = radii[keep_mask]
+
+            if points_xy.size == 0:
+                return np.zeros((0, 3), dtype=np.float32)
+
         return np.column_stack([points_xy, radii]).astype(np.float32)
+
+    def _sample_start_goal_anchors(self) -> tuple[np.ndarray, np.ndarray]:
+        """Sample stochastic start/goal anchor points from opposite boundary bands (tree-agnostic)."""
+        half = float(self._effective_world_half_extent())
+        band_inner = 0.55 * half
+
+        def _uniform_between(a: float, b: float) -> float:
+            lo = min(float(a), float(b))
+            hi = max(float(a), float(b))
+            return float(self.np_random.uniform(lo, hi))
+
+        for _ in range(self.p.spawn_max_attempts):
+            axis = int(self.np_random.integers(0, 2))
+            start_side = -1.0 if bool(self.np_random.integers(0, 2)) else 1.0
+            goal_side = -start_side
+
+            if axis == 0:
+                start_x = _uniform_between(start_side * band_inner, start_side * half)
+                start_y = float(self.np_random.uniform(-half, half))
+                goal_x = _uniform_between(goal_side * band_inner, goal_side * half)
+                goal_y = float(self.np_random.uniform(-half, half))
+            else:
+                start_x = float(self.np_random.uniform(-half, half))
+                start_y = _uniform_between(start_side * band_inner, start_side * half)
+                goal_x = float(self.np_random.uniform(-half, half))
+                goal_y = _uniform_between(goal_side * band_inner, goal_side * half)
+
+            start_xy = np.array([start_x, start_y], dtype=np.float32)
+            goal_xy = np.array([goal_x, goal_y], dtype=np.float32)
+
+            if np.linalg.norm(goal_xy - start_xy) >= self.p.min_start_goal_distance:
+                return start_xy, goal_xy
+
+        fallback_start = np.array([band_inner, 0.0], dtype=np.float32)
+        fallback_goal = np.array([-band_inner, 0.0], dtype=np.float32)
+        return fallback_start, fallback_goal
 
     def _point_clear_of_trees(self, x: float, y: float, clearance: float) -> bool:
         if self.trees is None or len(self.trees) == 0:
@@ -730,14 +882,17 @@ class ForestNavEnv(gym.Env):
             I should probably raise an exception
         """
         if x_bounds is None:
-            x_bounds = (-self._world_half_extent, self._world_half_extent)
+            half = self._effective_world_half_extent()
+            x_bounds = (-half, half)
         if y_bounds is None:
-            y_bounds = (-self._world_half_extent, self._world_half_extent)
+            half = self._effective_world_half_extent()
+            y_bounds = (-half, half)
 
-        x_lo = float(max(-self._world_half_extent, min(x_bounds[0], x_bounds[1])))
-        x_hi = float(min(self._world_half_extent, max(x_bounds[0], x_bounds[1])))
-        y_lo = float(max(-self._world_half_extent, min(y_bounds[0], y_bounds[1])))
-        y_hi = float(min(self._world_half_extent, max(y_bounds[0], y_bounds[1])))
+        effective_half = self._effective_world_half_extent()
+        x_lo = float(max(-effective_half, min(x_bounds[0], x_bounds[1])))
+        x_hi = float(min(effective_half, max(x_bounds[0], x_bounds[1])))
+        y_lo = float(max(-effective_half, min(y_bounds[0], y_bounds[1])))
+        y_hi = float(min(effective_half, max(y_bounds[0], y_bounds[1])))
 
         if x_lo >= x_hi or y_lo >= y_hi:
             return np.array([0.0, 0.0], dtype=np.float32)
@@ -750,14 +905,21 @@ class ForestNavEnv(gym.Env):
 
         return np.array([0.0, 0.0], dtype=np.float32)
     
-    def _sample_start_pose(self):
+    def _sample_start_pose(self, preferred_xy: Optional[np.ndarray] = None):
         """ Sample a start pose (x, y, z, yaw) that is clear of trees and respects the clearance requirement
 
         Returns:
             np.array: Array of shape (3,) with x, y, z coordinates of the start position, and a separate float for yaw
             The z coordinate is set to the default_z_target for now, but I can change that later if I want to add some verticality to the start/goal sampling
         """
-        half = float(self._world_half_extent)
+        if preferred_xy is not None:
+            preferred = np.asarray(preferred_xy, dtype=np.float32)
+            if preferred.shape[0] >= 2:
+                if self._point_clear_of_trees(float(preferred[0]), float(preferred[1]), self.p.start_goal_clearance):
+                    yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
+                    return np.array([preferred[0], preferred[1], self.p.default_z_target], dtype=np.float32), yaw
+
+        half = float(self._effective_world_half_extent())
         band_inner = 0.55 * half
 
         for _ in range(self.p.spawn_max_attempts):
@@ -784,13 +946,19 @@ class ForestNavEnv(gym.Env):
         yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
         return np.array([start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32), yaw
     
-    def _sample_goal_pose(self):
+    def _sample_goal_pose(self, preferred_xy: Optional[np.ndarray] = None):
         """ Same idea as sample start pose, find a free (x, y) goal position
 
         Returns:
             np.array: Array of shape (3,) with x, y, z coordinates of the goal position
         """
-        half = float(self._world_half_extent)
+        if preferred_xy is not None:
+            preferred = np.asarray(preferred_xy, dtype=np.float32)
+            if preferred.shape[0] >= 2:
+                if self._point_clear_of_trees(float(preferred[0]), float(preferred[1]), self.p.start_goal_clearance):
+                    return np.array([preferred[0], preferred[1], self.p.default_z_target], dtype=np.float32)
+
+        half = float(self._effective_world_half_extent())
         band_inner = 0.55 * half
 
         start_xy = self.pos[:2].astype(np.float32)

@@ -3,6 +3,8 @@
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
 RL_CONFIG ?= configs/training/sac.yaml
+RESUME_CONFIG ?=
+TRAJ_CONFIG ?=
 RUN ?=
 TB_PORT ?= 6006
 MODEL ?=
@@ -19,12 +21,12 @@ help:
 	@echo "  worldgen    - Generate a forest world with seed 42"
 	@echo "  worldgen-run - Generate world and launch Gazebo"
 	@echo "  rl-train    - Train SAC policy (override RL_CONFIG=... DEVICE=...)"
-	@echo "  rl-resume   - Resume training from latest run (or RUN=outputs/runs/sac_fastsim_XXX)"
+	@echo "  rl-resume   - Resume from run (override RUN=... RESUME_CONFIG=... DEVICE=...)"
 	@echo "  rl-eval     - Evaluate trained policy (requires MODEL=..., override DEVICE=...)"
 	@echo "  rl-tensorboard - Launch TensorBoard on outputs/runs (override TB_PORT=...)"
 	@echo "  rl-visualize - Build single-run report (latest if RUN is empty)"
 	@echo "  rl-compare  - Build multi-run comparison report"
-	@echo "  rl-trajectories - Visualize agent trajectories (requires MODEL=..., override DEVICE=...)"
+	@echo "  rl-trajectories - Visualize trajectories (MODEL=..., TRAJ_CONFIG=... optional, DEVICE=...)"
 	@echo "  rl-gazebo-demo - Launch Gazebo, run demo with latest model (override MODEL=... NUM_EPISODES=...)"
 	@echo "  clean       - Remove venv, caches, and generated outputs"
 	@echo "  help        - Show this help message"
@@ -68,17 +70,33 @@ rl-train:
 rl-resume:
 	@RUN_DIR="$(RUN)"; \
 	if [ -z "$$RUN_DIR" ]; then \
-		RUN_DIR=$$(ls -dt outputs/runs/sac_fastsim_*/ 2>/dev/null | head -1 | sed 's|/$||'); \
+		RUN_DIR=$$(ls -dt outputs/runs/sac_fastsim*/ 2>/dev/null | head -1 | sed 's|/$$||'); \
 		if [ -z "$$RUN_DIR" ]; then \
-			echo "Error: No previous runs found. Usage: make rl-resume RUN=outputs/runs/sac_fastsim_XXX"; \
+			echo "Error: No previous runs found. Usage: make rl-resume RUN=outputs/runs/sac_fastsim..."; \
 			exit 1; \
 		fi; \
 		echo "Resuming from latest run: $$RUN_DIR"; \
 	fi; \
+	CONFIG_PATH="$(RESUME_CONFIG)"; \
+	if [ -z "$$CONFIG_PATH" ]; then \
+		RUN_CONFIG="$$RUN_DIR/config_used.yaml"; \
+		if [ -f "$$RUN_CONFIG" ]; then \
+			CONFIG_PATH="$$RUN_CONFIG"; \
+			echo "Using run config: $$CONFIG_PATH"; \
+		else \
+			CONFIG_PATH="$(RL_CONFIG)"; \
+			echo "Using RL_CONFIG fallback: $$CONFIG_PATH"; \
+		fi; \
+	fi; \
+	if [ ! -f "$$CONFIG_PATH" ]; then \
+		echo "Error: Resume config not found: $$CONFIG_PATH"; \
+		echo "Usage: make rl-resume RUN=... RESUME_CONFIG=configs/training/your_finetune.yaml"; \
+		exit 1; \
+	fi; \
 	if [ -n "$(DEVICE)" ]; then \
-		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG) --resume-from $$RUN_DIR --device $(DEVICE); \
+		$(PYTHON) -m forest_nav_rl.train_sac --config "$$CONFIG_PATH" --resume-from $$RUN_DIR --device $(DEVICE); \
 	else \
-		$(PYTHON) -m forest_nav_rl.train_sac --config $(RL_CONFIG) --resume-from $$RUN_DIR; \
+		$(PYTHON) -m forest_nav_rl.train_sac --config "$$CONFIG_PATH" --resume-from $$RUN_DIR; \
 	fi
 
 rl-eval:
@@ -113,11 +131,22 @@ rl-trajectories:
 		echo "Error: MODEL is required. Usage: make rl-trajectories MODEL=path/to/model.zip"; \
 		exit 1; \
 	fi
-	@MODEL_CONFIG="$$(dirname "$(MODEL)")/../config_used.yaml"; \
-	if [ -f "$$MODEL_CONFIG" ]; then \
-		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --config "$$MODEL_CONFIG" --num-episodes $(NUM_EPISODES) --device $(DEVICE); \
-	elif [ -n "$(RL_CONFIG)" ] && [ -f "$(RL_CONFIG)" ]; then \
-		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --config "$(RL_CONFIG)" --num-episodes $(NUM_EPISODES) --device $(DEVICE); \
+	@CONFIG_PATH="$(TRAJ_CONFIG)"; \
+	if [ -z "$$CONFIG_PATH" ]; then \
+		MODEL_CONFIG="$$(dirname "$(MODEL)")/../config_used.yaml"; \
+		if [ -f "$$MODEL_CONFIG" ]; then \
+			CONFIG_PATH="$$MODEL_CONFIG"; \
+		elif [ -n "$(RL_CONFIG)" ] && [ -f "$(RL_CONFIG)" ]; then \
+			CONFIG_PATH="$(RL_CONFIG)"; \
+		fi; \
+	fi; \
+	if [ -n "$$CONFIG_PATH" ] && [ ! -f "$$CONFIG_PATH" ]; then \
+		echo "Error: Trajectory config not found: $$CONFIG_PATH"; \
+		echo "Usage: make rl-trajectories MODEL=... TRAJ_CONFIG=configs/training/your_config.yaml"; \
+		exit 1; \
+	fi; \
+	if [ -n "$$CONFIG_PATH" ]; then \
+		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --config "$$CONFIG_PATH" --num-episodes $(NUM_EPISODES) --device $(DEVICE); \
 	else \
 		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --num-episodes $(NUM_EPISODES) --device $(DEVICE); \
 	fi

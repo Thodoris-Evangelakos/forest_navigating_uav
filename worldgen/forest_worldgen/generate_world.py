@@ -7,7 +7,9 @@ import os
 import sys
 import random
 import shutil
+import io
 from contextlib import contextmanager
+from contextlib import redirect_stdout
 from datetime import datetime
 
 from .config import load_config, load_template, resolve_path
@@ -56,7 +58,7 @@ def _load_world_and_layout_configs(config_file):
     return world_config, layout_config, project_root
 
 
-def generate_positions_from_config(config_file, seed=None):
+def generate_positions_from_config(config_file, seed=None, verbose=True):
     """Generate world positions in-memory without file export (pure memory API)
 
     Args:
@@ -87,14 +89,25 @@ def generate_positions_from_config(config_file, seed=None):
     world_config, layout_config, project_root = _load_world_and_layout_configs(config_file)
 
     with _local_random_seed(seed):
-        if layout_config is not None:
-            layout_type = layout_config['layout']['type']
-            handler = LAYOUT_HANDLERS.get(layout_type)
-            if handler is None:
-                raise ValueError(f"Unknown layout type: {layout_type}")
-            positions = handler(layout_config, world_config, project_root)
+        if not bool(verbose):
+            with redirect_stdout(io.StringIO()):
+                if layout_config is not None:
+                    layout_type = layout_config['layout']['type']
+                    handler = LAYOUT_HANDLERS.get(layout_type)
+                    if handler is None:
+                        raise ValueError(f"Unknown layout type: {layout_type}")
+                    positions = handler(layout_config, world_config, project_root)
+                else:
+                    positions = generate_single_zone(None, world_config, project_root)
         else:
-            positions = generate_single_zone(None, world_config, project_root)
+            if layout_config is not None:
+                layout_type = layout_config['layout']['type']
+                handler = LAYOUT_HANDLERS.get(layout_type)
+                if handler is None:
+                    raise ValueError(f"Unknown layout type: {layout_type}")
+                positions = handler(layout_config, world_config, project_root)
+            else:
+                positions = generate_single_zone(None, world_config, project_root)
 
     return positions, world_config, layout_config
 

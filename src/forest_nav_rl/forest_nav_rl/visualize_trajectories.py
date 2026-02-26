@@ -3,6 +3,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+from typing import Any
 
 import matplotlib
 import matplotlib.cm as cm
@@ -12,6 +13,7 @@ import yaml
 from matplotlib.collections import PatchCollection
 from matplotlib.colors import Normalize
 from matplotlib.patches import Circle
+from matplotlib.patches import Rectangle
 
 from fastsim_forest_nav.wrappers import TrajectoryRecorder
 from forest_nav_rl.utils import build_env_ctor_and_kwargs
@@ -167,9 +169,16 @@ def plot_trajectory_map(
     episode_idx: int,
     success: bool,
     collision: bool,
+    boundary_half_extent: float | None = None,
 ) -> None:
-    """Plot forest map with trees, start/goal, and time-colored trajectory."""
-    fig, ax = plt.subplots(figsize=(10, 10))
+    """Plot forest map with trees, start/goal, and a compact height-over-time panel."""
+    fig, (ax, ax_z) = plt.subplots(
+        2,
+        1,
+        figsize=(12, 10),
+        constrained_layout=True,
+        gridspec_kw={"height_ratios": [6, 1], "hspace": 0.2},
+    )
     plasma_cmap = plt.get_cmap("plasma")
 
     # Plot trees as circles
@@ -207,6 +216,23 @@ def plot_trajectory_map(
         zorder=10,
     )
 
+    # Plot virtual boundary used for collision checks (if available)
+    if boundary_half_extent is not None and boundary_half_extent > 0.0:
+        side = 2.0 * boundary_half_extent
+        boundary = Rectangle(
+            (-boundary_half_extent, -boundary_half_extent),
+            side,
+            side,
+            fill=False,
+            edgecolor="crimson",
+            linewidth=1.5,
+            linestyle="--",
+            alpha=0.9,
+            zorder=6,
+            label="Virtual boundary",
+        )
+        ax.add_patch(boundary)
+
     # Plot trajectory with time-based color gradient
     if len(trajectory) > 1:
         points = trajectory[:, :2]  # xy positions
@@ -225,17 +251,30 @@ def plot_trajectory_map(
         # Add colorbar to show time progression
         sm = cm.ScalarMappable(cmap=plasma_cmap, norm=Normalize(vmin=0, vmax=len(points) - 1))
         sm.set_array([])
-        cbar = plt.colorbar(sm, ax=ax, label="Time step", shrink=0.8)
+        plt.colorbar(sm, ax=ax, label="Time step", shrink=0.8)
 
-    # Set equal aspect ratio and limits
+    # Set equal aspect ratio and centered limits around origin
+    x_values = [float(start_pos[0]), float(goal_pos[0])]
+    y_values = [float(start_pos[1]), float(goal_pos[1])]
+
+    if trajectory is not None and len(trajectory) > 0:
+        x_values.extend(np.asarray(trajectory[:, 0], dtype=np.float64).tolist())
+        y_values.extend(np.asarray(trajectory[:, 1], dtype=np.float64).tolist())
+
     if trees is not None and len(trees) > 0:
-        all_x = np.concatenate([trees[:, 0], [start_pos[0], goal_pos[0]], trajectory[:, 0]])
-        all_y = np.concatenate([trees[:, 1], [start_pos[1], goal_pos[1]], trajectory[:, 1]])
-        margin = 2.0
-        x_min, x_max = all_x.min() - margin, all_x.max() + margin
-        y_min, y_max = all_y.min() - margin, all_y.max() + margin
-        ax.set_xlim(x_min, x_max)
-        ax.set_ylim(y_min, y_max)
+        x_values.extend(np.asarray(trees[:, 0], dtype=np.float64).tolist())
+        y_values.extend(np.asarray(trees[:, 1], dtype=np.float64).tolist())
+
+    extent_from_data = max(
+        max(abs(v) for v in x_values) if x_values else 0.0,
+        max(abs(v) for v in y_values) if y_values else 0.0,
+    )
+    extent_from_boundary = float(boundary_half_extent) if boundary_half_extent is not None else 0.0
+    half_extent = max(extent_from_data, extent_from_boundary) + 2.0
+    half_extent = max(half_extent, 1.0)
+
+    ax.set_xlim(-half_extent, half_extent)
+    ax.set_ylim(-half_extent, half_extent)
 
     ax.set_aspect("equal")
     ax.grid(True, alpha=0.3)
@@ -248,9 +287,94 @@ def plot_trajectory_map(
     ax.set_title(f"Episode {episode_idx} - {outcome}", fontsize=14, fontweight="bold", color=color)
 
     ax.legend(loc="upper right")
-    fig.tight_layout()
+
+    # Bottom panel: compact height-over-time graph
+    if trajectory is not None and len(trajectory) > 0:
+        z_values = trajectory[:, 2]
+        time_steps = np.arange(len(z_values))
+        ax_z.plot(time_steps, z_values, color="tab:purple", linewidth=1.8)
+        ax_z.scatter(time_steps[-1], z_values[-1], color="tab:purple", s=20, zorder=3)
+    else:
+        ax_z.plot([], [])
+
+    ax_z.grid(True, alpha=0.3)
+    ax_z.set_ylabel("Z (m)")
+    ax_z.set_xlabel("Time step")
+    ax_z.set_title("Height over time", fontsize=10)
+
     fig.savefig(output_path, dpi=160)
     plt.close(fig)
+
+
+def compute_collision_diagnostics(
+    env: TrajectoryRecorder,
+    trajectory: np.ndarray,
+    trees: np.ndarray,
+) -> dict[str, Any]:
+    if trajectory.size == 0:
+        return {
+            "final_x": None,
+            "final_y": None,
+            "final_z": None,
+            "final_tree_clearance": None,
+            "final_boundary_clearance": None,
+            "collision_source_guess": "unknown",
+            "effective_world_half_extent": None,
+        }
+
+    final_pos = trajectory[-1]
+    final_x = float(final_pos[0])
+    final_y = float(final_pos[1])
+    final_z = float(final_pos[2])
+
+    unwrapped = env.unwrapped
+
+    tree_clearance = None
+    if trees is not None and len(trees) > 0:
+        dxy = trees[:, :2] - np.array([final_x, final_y], dtype=np.float64)
+        d = np.linalg.norm(dxy, axis=1)
+        clearance = d - trees[:, 2]
+        tree_clearance = float(np.min(clearance))
+
+    boundary_half = None
+    boundary_clearance = None
+    boundary_half_getter = getattr(unwrapped, "_effective_world_half_extent", None)
+    if callable(boundary_half_getter):
+        boundary_val = boundary_half_getter()
+        if isinstance(boundary_val, (int, float)):
+            boundary_half = float(boundary_val)
+            dx = boundary_half - abs(final_x)
+            dy = boundary_half - abs(final_y)
+            boundary_clearance = float(min(dx, dy))
+
+    params = getattr(unwrapped, "p", object())
+    configured_radius = float(getattr(params, "drone_radius", 0.0))
+    fallback_threshold = float(getattr(params, "collision_threshold", 0.18))
+    collision_radius = configured_radius if configured_radius > 0.0 else fallback_threshold
+
+    candidates: list[tuple[str, float]] = []
+    if tree_clearance is not None:
+        candidates.append(("tree", tree_clearance))
+    if boundary_clearance is not None:
+        candidates.append(("boundary", boundary_clearance))
+
+    source = "unknown"
+    if candidates:
+        source = min(candidates, key=lambda item: item[1])[0]
+        # if neither is actually below threshold, keep informative label
+        if min(candidates, key=lambda item: item[1])[1] >= collision_radius:
+            source = "none_below_threshold"
+
+    return {
+        "final_x": final_x,
+        "final_y": final_y,
+        "final_z": final_z,
+        "final_tree_clearance": tree_clearance,
+        "final_boundary_clearance": boundary_clearance,
+        "collision_radius": collision_radius,
+        "collision_source_guess": source,
+        "effective_world_half_extent": boundary_half,
+    }
 
 
 def run_episode_with_trajectory(
@@ -258,7 +382,7 @@ def run_episode_with_trajectory(
     model: SAC,
     deterministic: bool,
     obs_normalizer: VecNormalize | None,
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool, bool]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray, bool, bool, dict[str, Any]]:
     """Run one episode and return trajectory data."""
     obs, info = env.reset()
     terminated = False
@@ -284,7 +408,9 @@ def run_episode_with_trajectory(
     goal_pos = env.episode_goal_pos if env.episode_goal_pos is not None else np.zeros(3)
     trees = env.episode_trees if env.episode_trees is not None else np.empty((0, 3))
 
-    return trajectory, trees, start_pos, goal_pos, success, collision
+    diagnostics = compute_collision_diagnostics(env, trajectory, trees)
+
+    return trajectory, trees, start_pos, goal_pos, success, collision, diagnostics
 
 
 def main() -> None:
@@ -324,7 +450,7 @@ def main() -> None:
     # Run episodes and generate plots
     episode_stats = []
     for episode_idx in range(args.num_episodes):
-        trajectory, trees, start_pos, goal_pos, success, collision = run_episode_with_trajectory(
+        trajectory, trees, start_pos, goal_pos, success, collision, diagnostics = run_episode_with_trajectory(
             env,
             model,
             deterministic=args.deterministic,
@@ -342,11 +468,26 @@ def main() -> None:
                 "goal_x": float(goal_pos[0]),
                 "goal_y": float(goal_pos[1]),
                 "num_trees": len(trees),
+                **diagnostics,
             }
         )
 
         output_path = output_dir / f"trajectory_episode_{episode_idx:03d}.png"
-        plot_trajectory_map(trajectory, trees, start_pos, goal_pos, output_path, episode_idx, success, collision)
+        boundary_half_extent = diagnostics.get("effective_world_half_extent")
+        if not isinstance(boundary_half_extent, (int, float)):
+            boundary_half_extent = None
+
+        plot_trajectory_map(
+            trajectory,
+            trees,
+            start_pos,
+            goal_pos,
+            output_path,
+            episode_idx,
+            success,
+            collision,
+            boundary_half_extent=float(boundary_half_extent) if boundary_half_extent is not None else None,
+        )
         print(f"Saved trajectory plot: {output_path}")
 
     # Save episode statistics
