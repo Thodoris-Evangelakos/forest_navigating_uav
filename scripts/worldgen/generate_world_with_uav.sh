@@ -25,7 +25,7 @@ CONFIG_FILE="${1:-$PROJECT_ROOT/configs/worldgen/worldgen_run.yaml}"
 SEED=""
 INDEX="0"
 MARGIN="1.0"
-HEIGHT="2.0"
+HEIGHT="0.3"
 WAIT_SPAWN="1"
 
 i=2

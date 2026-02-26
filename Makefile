@@ -14,7 +14,7 @@ WORLD_CONFIG ?= configs/worldgen/worldgen_run.yaml
 WORLD_SEED ?= 42
 SPAWN_INDEX ?= 0
 SPAWN_MARGIN ?= 1.0
-SPAWN_HEIGHT ?= 2.0
+SPAWN_HEIGHT ?= 0.3
 
 help:
 	@echo "Forest Navigating UAV - Development Makefile"

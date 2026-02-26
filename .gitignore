@@ -5,7 +5,7 @@ PARTLIST.md
 .venv/
 outputs/runs/*
 
-# Python artifacts
+# python artifacts
 *.py[cod]
 *.pyo
 *.pyd
@@ -15,20 +15,20 @@ outputs/runs/*
 .ruff_cache/
 .mypy_cache/
 
-# Coverage and test output
+# coverage and test outputs
 .coverage
 .coverage.*
 htmlcov/
 
-# Build artifacts
+# build artifacts
 build/
 dist/
 
-# Notebooks and editor
+# notebooks and vscode settings (no notebooks so far)
 .ipynb_checkpoints/
 .vscode/
 
-# OS noise
+# noise
 .DS_Store
 Thumbs.db
 test.py

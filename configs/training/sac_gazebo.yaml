@@ -23,7 +23,7 @@ env:
       world_radius: 20.0
       boundary_margin: 1.5
       collision_threshold: 0.18
-      default_z_target: 2.0
+      default_z_target: 0.3
       z_error_scale: 5.0
       reward_progress_scale: 2.0
       reward_speed_scale: 0.02
@@ -38,7 +38,8 @@ env:
       reward_accel_clip_penalty: 0.05
       progress_stall_threshold: 0.02
       yaw_penalty_speed_gate: 0.25
-      shield_floor_z_min: 0.05
+      shield_floor_z_min: 0.1
+      shield_ceiling_z_max: 0.5
       shield_lookahead_margin: 3.0
       shield_yaw_damping: 0.3
       shield_front_arc_deg: 55.0
@@ -56,7 +57,7 @@ env:
       settle_time_sec: 0.05
       use_sim_reset_service: false
       reset_service_name: /reset_simulation
-      fixed_goal: [8.0, 0.0, 2.0]
+      fixed_goal: [8.0, 0.0, 0.3]
       randomize_goal_on_reset: true
       start_goal_clearance: 0.6
       min_start_goal_distance: 8.0

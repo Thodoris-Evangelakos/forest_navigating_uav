@@ -66,6 +66,7 @@ class SimParams:
     worldgen_resample_every_n_episodes: int = field(default=1)
     worldgen_verbose: bool = field(default=False)
     start_goal_tree_exclusion_radius: float = field(default=3.0)
+    shield_ceiling_z_max: float = field(default=0.0)  # m, <=0 disables ceiling guard
 
     # dynamics control mode
     # "hybrid" = acceleration command integrated to velocity
@@ -645,6 +646,11 @@ class ForestNavEnv(gym.Env):
 
         # vertical floor guard
         if float(self.pos[2]) <= self.p.shield_floor_z_min and safe_vz < 0.0:
+            safe_vz = 0.0
+            shield_active = 1
+
+        # vertical ceiling guard
+        if float(self.p.shield_ceiling_z_max) > 0.0 and float(self.pos[2]) >= float(self.p.shield_ceiling_z_max) and safe_vz > 0.0:
             safe_vz = 0.0
             shield_active = 1
 

@@ -73,7 +73,8 @@ class GazeboForestNavEnv(gym.Env):
         if self.goal.shape != (3,):
             raise ValueError("GazeboParams.fixed_goal must be [x, y, z]")
 
-        self.z_target = np.float32(self.goal[2])
+        self._z_hold = np.float32(0.3)
+        self.z_target = self._z_hold
         self.trees = None
         self._prev_dist: Optional[float] = None
         self._world_half_extent = float(self.p.world_radius)
@@ -348,6 +349,10 @@ class GazeboForestNavEnv(gym.Env):
             safe_vz = 0.0
             shield_active = 1
 
+        if float(self.p.shield_ceiling_z_max) > 0.0 and float(self.pos[2]) >= float(self.p.shield_ceiling_z_max) and safe_vz > 0.0:
+            safe_vz = 0.0
+            shield_active = 1
+
         cmd_norm = abs(v) + abs(wz) + abs(vz)
         delta_norm = abs(v - safe_v) + abs(wz - safe_wz) + abs(vz - safe_vz)
         shield_delta = delta_norm / cmd_norm if cmd_norm > 1e-6 else 0.0
@@ -389,22 +394,14 @@ class GazeboForestNavEnv(gym.Env):
         band_inner = 0.55 * half
 
         start_xy = self.pos[:2].astype(np.float32)
-        if abs(float(start_xy[0])) >= abs(float(start_xy[1])):
-            axis = 0
-            start_side = 1.0 if float(start_xy[0]) >= 0.0 else -1.0
-        else:
-            axis = 1
-            start_side = 1.0 if float(start_xy[1]) >= 0.0 else -1.0
-
-        goal_side = -start_side
+        start_side_x = 1.0 if float(start_xy[0]) >= 0.0 else -1.0
+        start_side_y = 1.0 if float(start_xy[1]) >= 0.0 else -1.0
+        goal_side_x = -start_side_x
+        goal_side_y = -start_side_y
 
         for _ in range(self.p.spawn_max_attempts):
-            if axis == 0:
-                x_bounds = (goal_side * band_inner, goal_side * half)
-                y_bounds = (-half, half)
-            else:
-                x_bounds = (-half, half)
-                y_bounds = (goal_side * band_inner, goal_side * half)
+            x_bounds = (goal_side_x * band_inner, goal_side_x * half)
+            y_bounds = (goal_side_y * band_inner, goal_side_y * half)
 
             goal_xy = self._sample_xy_in_bounds(x_bounds=x_bounds, y_bounds=y_bounds)
             if np.allclose(goal_xy, 0.0):
@@ -415,8 +412,8 @@ class GazeboForestNavEnv(gym.Env):
                 return candidate
 
         fallback = np.array([
-            -np.sign(float(start_xy[0])) * band_inner if axis == 0 else 0.0,
-            -np.sign(float(start_xy[1])) * band_inner if axis == 1 else 0.0,
+            goal_side_x * band_inner,
+            goal_side_y * band_inner,
             float(self.p.default_z_target),
         ], dtype=np.float32)
         return fallback.astype(np.float32)
@@ -430,23 +427,25 @@ class GazeboForestNavEnv(gym.Env):
         Gazebo listens to velocity commands on ``/cmd_vel``. To keep control dynamics
         acceleration-based, we integrate acceleration against the current measured
         (or last commanded) velocity state inside the environment, then publish the
-        resulting velocity command.
+        resulting velocity command. Vertical action is intentionally ignored in
+        Gazebo, and altitude is held at z=0.3m using a local feedback command.
 
         Returns ``(cmd_v, cmd_wz, cmd_vz, accel_clipped)``.
         """
         accel_v = _map_normalized_accel(float(action[0]), self.p.accel_v_max, self.p.decel_v_max)
         accel_wz = _map_normalized_accel(float(action[1]), self.p.accel_wz_max, self.p.decel_wz_max)
-        accel_vz = _map_normalized_accel(float(action[2]), self.p.accel_vz_max, self.p.decel_vz_max)
 
         pre_clip_v = float(self.v) + accel_v * float(self.p.dt)
         pre_clip_wz = float(self.wz) + accel_wz * float(self.p.dt)
-        pre_clip_vz = float(self.vz) + accel_vz * float(self.p.dt)
 
         cmd_v = float(np.clip(pre_clip_v, -self.p.v_max, self.p.v_max))
         cmd_wz = float(np.clip(pre_clip_wz, -self.p.wz_max, self.p.wz_max))
-        cmd_vz = float(np.clip(pre_clip_vz, -self.p.vz_max, self.p.vz_max))
+
+        z_err = float(self._z_hold - float(self.pos[2]))
+        cmd_vz = float(np.clip(2.0 * z_err, -self.p.vz_max, self.p.vz_max))
+
         accel_clipped = int(
-            (cmd_v != pre_clip_v) or (cmd_wz != pre_clip_wz) or (cmd_vz != pre_clip_vz)
+            (cmd_v != pre_clip_v) or (cmd_wz != pre_clip_wz)
         )
 
         return cmd_v, cmd_wz, cmd_vz, accel_clipped
@@ -461,7 +460,7 @@ class GazeboForestNavEnv(gym.Env):
         self._spin_for(self.p.settle_time_sec)
 
         self.goal = self._sample_goal_pose()
-        self.z_target = np.float32(self.goal[2])
+        self.z_target = self._z_hold
 
         self.v = np.float32(0.0)
         self.wz = np.float32(0.0)

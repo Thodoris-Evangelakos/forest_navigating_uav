@@ -44,7 +44,7 @@ fi
 # Parse arguments
 INDEX=0
 MARGIN=1.0
-HEIGHT=2.0
+HEIGHT=0.3
 
 while [ $# -gt 0 ]; do
     case "$1" in
