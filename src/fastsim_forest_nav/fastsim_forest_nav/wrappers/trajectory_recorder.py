@@ -1,3 +1,5 @@
+"""Record per-episode trajectories and reset metadata for analysis."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -10,6 +12,7 @@ class TrajectoryRecorder(gym.Wrapper):
     """Records the agent's position trajectory during episodes."""
 
     def __init__(self, env: gym.Env):
+        """Wrap an environment and initialize trajectory buffers."""
         super().__init__(env)
         self.trajectory: list[np.ndarray] = []
         self.episode_start_pos: np.ndarray | None = None
@@ -18,6 +21,7 @@ class TrajectoryRecorder(gym.Wrapper):
         self.episode_reset_info: dict[str, Any] = {}
 
     def reset(self, **kwargs) -> tuple[Any, dict[str, Any]]:
+        """Reset the environment and start a fresh trajectory log."""
         obs, info = self.env.reset(**kwargs)
         self.trajectory = []
         self.episode_reset_info = dict(info) if isinstance(info, dict) else {}
@@ -38,6 +42,7 @@ class TrajectoryRecorder(gym.Wrapper):
         return obs, info
 
     def step(self, action) -> tuple[Any, float, bool, bool, dict[str, Any]]:
+        """Step the wrapped environment and append the current position."""
         obs, reward, terminated, truncated, info = self.env.step(action)
 
         if hasattr(self.env.unwrapped, "pos"):
@@ -46,7 +51,7 @@ class TrajectoryRecorder(gym.Wrapper):
         return obs, float(reward), terminated, truncated, info
 
     def get_trajectory(self) -> np.ndarray:
-        """Returns trajectory as (N, 3) array of (x, y, z) positions."""
+        """Return the trajectory as an ``(N, 3)`` array of XYZ positions."""
         if not self.trajectory:
             return np.empty((0, 3), dtype=np.float64)
         return np.array(self.trajectory, dtype=np.float64)

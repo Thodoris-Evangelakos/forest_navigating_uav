@@ -1,3 +1,5 @@
+"""Run the end-to-end world generation pipeline."""
+
 from __future__ import annotations
 
 import copy
@@ -47,6 +49,7 @@ def _rewrite_distribution_refs(layout_config: dict, distribution_choices: list[s
     per_entry_modes = {"per_entry", "per_component", "per_zone"}
 
     if normalized_mode in per_entry_modes:
+
         def choose_ref() -> str:
             ref = str(random.choice(distribution_choices))
             selected_refs.append(ref)
@@ -95,7 +98,9 @@ def _load_world_and_layout_configs(config_file: str):
     world_config = load_config(world_path)
 
     stochastic_cfg = run_config.get("stochastic") or {}
-    stochastic_enabled = bool(stochastic_cfg.get("enabled", False)) if isinstance(stochastic_cfg, dict) else False
+    stochastic_enabled = (
+        bool(stochastic_cfg.get("enabled", False)) if isinstance(stochastic_cfg, dict) else False
+    )
 
     layout_ref = include_cfg.get("layout")
     layout_choices = []
@@ -200,10 +205,13 @@ def generate_positions_from_config(
     apply_start_goal_exclusion=False,
     return_selection_meta=False,
 ):
+    """Generate positions from a run configuration and return config context."""
     selection_meta = None
 
     with _local_random_seed(seed):
-        world_config, layout_config, project_root, selection_meta = _load_world_and_layout_configs(config_file)
+        world_config, layout_config, project_root, selection_meta = _load_world_and_layout_configs(
+            config_file
+        )
         if not bool(verbose):
             with redirect_stdout(io.StringIO()):
                 if layout_config is not None:
@@ -234,7 +242,9 @@ def generate_positions_from_config(
                 band_ratio=float(gen.get("start_goal_band_ratio", 0.55)),
                 max_attempts=int(gen.get("spawn_max_attempts", 500)),
             )
-            positions, removed = _exclude_positions_near_anchors(positions, anchors, exclusion_radius)
+            positions, removed = _exclude_positions_near_anchors(
+                positions, anchors, exclusion_radius
+            )
             world_config["_start_goal_anchors"] = {
                 "start_xy": [float(anchors[0][0]), float(anchors[0][1])],
                 "goal_xy": [float(anchors[1][0]), float(anchors[1][1])],
@@ -253,6 +263,7 @@ def run_generation(
     seed: int | None = None,
     apply_start_goal_exclusion: bool = True,
 ) -> dict[str, str]:
+    """Generate artifacts (SDF, metadata, preview) from a run config."""
     _, worldgen_root = _resolve_roots()
 
     if seed is not None:
@@ -274,7 +285,11 @@ def run_generation(
 
     selected_distribution_refs = selection_meta["selected_distribution_refs"]
     if selection_meta["stochastic_enabled"] and selected_distribution_refs:
-        if selection_meta["distribution_mode"].lower() in {"per_entry", "per_component", "per_zone"}:
+        if selection_meta["distribution_mode"].lower() in {
+            "per_entry",
+            "per_component",
+            "per_zone",
+        }:
             unique_refs = sorted(set(selected_distribution_refs))
             print(f"dist choices  : {', '.join(unique_refs)}")
         else:

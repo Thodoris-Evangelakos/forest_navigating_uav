@@ -1,3 +1,5 @@
+"""Build environment constructors and typed parameter objects from configs."""
+
 from __future__ import annotations
 
 from typing import Any
@@ -6,6 +8,7 @@ from fastsim_forest_nav.envs import ForestNavEnv, GazeboForestNavEnv, GazeboPara
 
 
 def get_env_backend(env_cfg: dict[str, Any]) -> str:
+    """Return normalized backend name (``fastsim`` or ``gazebo``)."""
     backend = str(env_cfg.get("backend", "fastsim")).strip().lower()
     if backend not in {"fastsim", "gazebo"}:
         raise ValueError(f"Unsupported env backend: {backend}. Expected one of: fastsim, gazebo")
@@ -13,6 +16,7 @@ def get_env_backend(env_cfg: dict[str, Any]) -> str:
 
 
 def build_env_params(env_cfg: dict[str, Any]) -> SimParams | GazeboParams:
+    """Construct and return backend-specific parameter dataclass instances."""
     env_kwargs = dict(env_cfg.get("env_kwargs", {}))
     raw_params = env_kwargs.get("params", env_cfg.get("sim_params", env_cfg.get("params", {})))
 
@@ -32,6 +36,7 @@ def build_env_params(env_cfg: dict[str, Any]) -> SimParams | GazeboParams:
 
 
 def build_env_ctor_and_kwargs(env_cfg: dict[str, Any]) -> tuple[type, dict[str, Any]]:
+    """Return the environment class and kwargs configured for the backend."""
     backend = get_env_backend(env_cfg)
     params = build_env_params(env_cfg)
 

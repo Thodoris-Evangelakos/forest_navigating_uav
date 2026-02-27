@@ -1,3 +1,5 @@
+"""Generate training/evaluation plots and CSV summaries for SAC runs."""
+
 from __future__ import annotations
 
 import argparse
@@ -17,6 +19,8 @@ import matplotlib.pyplot as plt
 
 @dataclass
 class RunMetrics:
+    """Store aggregate metrics extracted from a single training run."""
+
     run_name: str
     episodes: int
     reward_last100_mean: float | None
@@ -29,6 +33,7 @@ class RunMetrics:
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for run report generation."""
     parser = argparse.ArgumentParser(description="Visualize SAC training artifacts")
     parser.add_argument(
         "--run-dir",
@@ -93,6 +98,7 @@ def _load_monitor_file(file_path: Path) -> list[dict[str, float]]:
 
 
 def load_monitor_dir(monitor_dir: Path) -> dict[str, np.ndarray]:
+    """Load and merge monitor CSV files from a monitor directory."""
     all_rows: list[dict[str, float]] = []
     for csv_path in sorted(monitor_dir.glob("*.monitor.csv")):
         all_rows.extend(_load_monitor_file(csv_path))
@@ -115,6 +121,7 @@ def load_monitor_dir(monitor_dir: Path) -> dict[str, np.ndarray]:
 
 
 def load_eval_npz(eval_file: Path) -> dict[str, np.ndarray] | None:
+    """Load evaluation arrays from an SB3 ``evaluations.npz`` file."""
     if not eval_file.exists():
         return None
 
@@ -142,7 +149,10 @@ def _safe_nanmax(values: np.ndarray | None) -> float | None:
     return float(np.nanmax(values))
 
 
-def summarize_run(run_dir: Path, train_data: dict[str, np.ndarray], eval_data: dict[str, np.ndarray] | None) -> RunMetrics:
+def summarize_run(
+    run_dir: Path, train_data: dict[str, np.ndarray], eval_data: dict[str, np.ndarray] | None
+) -> RunMetrics:
+    """Compute summary metrics for one run from train/eval artifacts."""
     rewards = train_data.get("r")
     success = train_data.get("success")
     collision = train_data.get("collision")
@@ -152,7 +162,9 @@ def summarize_run(run_dir: Path, train_data: dict[str, np.ndarray], eval_data: d
     eval_best_mean = None
     if eval_data is not None and "results" in eval_data:
         results = eval_data["results"]
-        eval_mean = np.nanmean(results, axis=1) if results.ndim == 2 else np.array([], dtype=np.float64)
+        eval_mean = (
+            np.nanmean(results, axis=1) if results.ndim == 2 else np.array([], dtype=np.float64)
+        )
         if len(eval_mean) > 0:
             eval_latest_mean = float(eval_mean[-1])
             eval_best_mean = float(np.nanmax(eval_mean))
@@ -175,6 +187,7 @@ def _format_optional(value: float | None) -> str:
 
 
 def write_summary_csv(output_file: Path, metrics: list[RunMetrics]) -> None:
+    """Write run summary metrics to CSV."""
     output_file.parent.mkdir(parents=True, exist_ok=True)
     with output_file.open("w", newline="", encoding="utf-8") as handle:
         writer = csv.writer(handle)
@@ -207,7 +220,9 @@ def write_summary_csv(output_file: Path, metrics: list[RunMetrics]) -> None:
             )
 
 
-def _plot_train_rewards(output_dir: Path, train_data: dict[str, np.ndarray], rolling_window: int) -> None:
+def _plot_train_rewards(
+    output_dir: Path, train_data: dict[str, np.ndarray], rolling_window: int
+) -> None:
     if "r" not in train_data:
         return
 
@@ -290,9 +305,27 @@ def _plot_run_comparison(output_dir: Path, metrics: list[RunMetrics]) -> None:
         return
 
     run_names = [item.run_name for item in metrics]
-    reward = np.array([np.nan if item.reward_last100_mean is None else item.reward_last100_mean for item in metrics], dtype=np.float64)
-    success = np.array([np.nan if item.success_last100_rate is None else item.success_last100_rate for item in metrics], dtype=np.float64)
-    collision = np.array([np.nan if item.collision_last100_rate is None else item.collision_last100_rate for item in metrics], dtype=np.float64)
+    reward = np.array(
+        [
+            np.nan if item.reward_last100_mean is None else item.reward_last100_mean
+            for item in metrics
+        ],
+        dtype=np.float64,
+    )
+    success = np.array(
+        [
+            np.nan if item.success_last100_rate is None else item.success_last100_rate
+            for item in metrics
+        ],
+        dtype=np.float64,
+    )
+    collision = np.array(
+        [
+            np.nan if item.collision_last100_rate is None else item.collision_last100_rate
+            for item in metrics
+        ],
+        dtype=np.float64,
+    )
 
     x = np.arange(len(run_names))
     width = 0.26
@@ -343,6 +376,7 @@ def _load_config(config_path: Path) -> dict[str, Any]:
 
 
 def generate_single_run_report(run_dir: Path, output_dir: Path, rolling_window: int) -> RunMetrics:
+    """Generate plots and summary files for a single training run."""
     train_monitor_dir = run_dir / "monitors" / "train"
     eval_file = run_dir / "eval" / "evaluations.npz"
 
@@ -374,6 +408,7 @@ def generate_single_run_report(run_dir: Path, output_dir: Path, rolling_window: 
 
 
 def generate_comparison_report(runs_root: Path, output_dir: Path, rolling_window: int) -> None:
+    """Generate multi-run comparison plots and per-run subreports."""
     metrics: list[RunMetrics] = []
     for run_dir in _collect_run_dirs(runs_root):
         train_dir = run_dir / "monitors" / "train"
@@ -400,6 +435,7 @@ def generate_comparison_report(runs_root: Path, output_dir: Path, rolling_window
 
 
 def main() -> None:
+    """Run the visualization CLI for single-run or comparison reports."""
     args = parse_args()
 
     runs_root = args.runs_root

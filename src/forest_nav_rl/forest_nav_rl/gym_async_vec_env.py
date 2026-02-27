@@ -1,3 +1,5 @@
+"""Adapt Gymnasium ``AsyncVectorEnv`` to the SB3 ``VecEnv`` interface."""
+
 from __future__ import annotations
 
 from pathlib import Path
@@ -22,6 +24,8 @@ def _index_value(value: Any, idx: int) -> Any:
 
 
 class GymAsyncVecEnv(VecEnv):
+    """Wrap asynchronous Gymnasium vector environments for SB3 training."""
+
     def __init__(
         self,
         env_ctor: type,
@@ -31,6 +35,7 @@ class GymAsyncVecEnv(VecEnv):
         monitor_dir: str | None = None,
         monitor_kwargs: dict[str, Any] | None = None,
     ) -> None:
+        """Create vectorized environments and optional monitor wrappers."""
         if n_envs < 1:
             raise ValueError("n_envs must be >= 1")
 
@@ -111,6 +116,7 @@ class GymAsyncVecEnv(VecEnv):
         return info_list
 
     def reset(self) -> np.ndarray:
+        """Reset all managed environments and return batched observations."""
         seeds: list[int | None] | None = None
         if self._base_seed is not None:
             seeds = [self._base_seed + idx for idx in range(self.num_envs)]
@@ -121,13 +127,17 @@ class GymAsyncVecEnv(VecEnv):
         return observations
 
     def step_async(self, actions: np.ndarray) -> None:
+        """Store actions for the next asynchronous vector step."""
         self._last_actions = np.array(actions, copy=False)
 
     def step_wait(self):
+        """Execute the pending vector step and return SB3-compatible outputs."""
         if self._last_actions is None:
             raise RuntimeError("step_wait called before step_async")
 
-        observations, rewards, terminated, truncated, infos = self._gym_vec_env.step(self._last_actions)
+        observations, rewards, terminated, truncated, infos = self._gym_vec_env.step(
+            self._last_actions
+        )
         info_list = self._vector_infos_to_list(infos)
 
         dones = np.logical_or(terminated, truncated)
@@ -140,24 +150,31 @@ class GymAsyncVecEnv(VecEnv):
         return observations, rewards, dones, info_list
 
     def close(self) -> None:
+        """Close the underlying Gymnasium vector environment."""
         self._gym_vec_env.close()
 
     def get_attr(self, attr_name: str, indices=None):
+        """Return attribute values from underlying environments."""
         return self._gym_vec_env.call(attr_name)
 
     def set_attr(self, attr_name: str, value: Any, indices=None) -> None:
+        """Set an attribute value across underlying environments."""
         self._gym_vec_env.set_attr(attr_name, value)
 
     def env_method(self, method_name: str, *method_args, indices=None, **method_kwargs):
+        """Call a named method on underlying environments."""
         return self._gym_vec_env.call(method_name, *method_args, **method_kwargs)
 
     def env_is_wrapped(self, wrapper_class, indices=None):
+        """Report wrapper status; always returns ``False`` for this adapter."""
         return [False for _ in range(self.num_envs)]
 
     def get_images(self):
+        """Return rendered images from each environment."""
         return self._gym_vec_env.call("render")
 
     def seed(self, seed: int | None = None):
+        """Configure deterministic per-env reset seeds for the next reset call."""
         self._base_seed = None if seed is None else int(seed)
         if self._base_seed is None:
             return [None for _ in range(self.num_envs)]

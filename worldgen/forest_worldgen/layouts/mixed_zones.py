@@ -1,28 +1,22 @@
-"""
-Mixed zones layout - multiple rectangular regions with different distributions
-"""
+"""Generate a mixed-zones layout with per-zone distributions."""
 
 from ..config import load_distribution
 from ..patterns import PATTERN_SAMPLERS
 
 
 def generate_mixed_zones(layout_config, world_config, project_root):
-    """
-    Each zone has its own region, count, and distribution
-    
-    Returns list of (x, y) positions
-    """
-    K = world_config['generation']['area_size']
-    min_distance = world_config['generation']['min_distance']
+    """Generate zone-wise samples using each zone's configured distribution."""
+    K = world_config["generation"]["area_size"]
+    min_distance = world_config["generation"]["min_distance"]
     all_positions = []
 
-    for zone in layout_config['layout']['zones']:
-        region = zone['region']
-        count = zone['count']
-        dist_ref = zone['distribution_ref']
+    for zone in layout_config["layout"]["zones"]:
+        region = zone["region"]
+        count = zone["count"]
+        dist_ref = zone["distribution_ref"]
         dist_config = load_distribution(dist_ref, project_root)
-        dist_type = dist_config['distribution']['type']
-        dist_params = dist_config['distribution'].get('params', {}) or {}
+        dist_type = dist_config["distribution"]["type"]
+        dist_params = dist_config["distribution"].get("params", {}) or {}
 
         sampler = PATTERN_SAMPLERS.get(dist_type)
         if sampler is None:

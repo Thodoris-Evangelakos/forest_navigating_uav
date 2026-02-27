@@ -57,6 +57,7 @@ from .clustered import (
 # Thinning passes
 # ---------------------------------------------------------------------------
 
+
 def _thin_deterministic(positions, d_mid):
     """
     Greedy deterministic thinning.
@@ -109,10 +110,23 @@ def _thin_probabilistic(positions, d_mid, p_remove=0.8):
 # Top-up: fill deficit by scattering more children around existing parents
 # ---------------------------------------------------------------------------
 
-def _topup(positions, deficit, parents, cluster_radius, scatter_fn,
-           region, K, min_distance, d_mid, max_attempts=500):
+
+def _topup(
+    positions,
+    deficit,
+    parents,
+    cluster_radius,
+    scatter_fn,
+    region,
+    K,
+    min_distance,
+    d_mid,
+    max_attempts=500,
+):
     """
-    Try to add *deficit* more points that respect both ``min_distance``
+    Add *deficit* more points while respecting distance constraints.
+
+    Respect both ``min_distance``
     (hard overlap guard) **and** ``d_mid`` (mid-scale inhibition) against
     all existing *positions*.
 
@@ -159,6 +173,7 @@ def _topup(positions, deficit, parents, cluster_radius, scatter_fn,
 # Public API
 # ---------------------------------------------------------------------------
 
+
 def sample_scale_dependent(count, region, K, min_distance, existing_positions, params):
     """
     Scale-dependent multi-scale process.
@@ -184,25 +199,30 @@ def sample_scale_dependent(count, region, K, min_distance, existing_positions, p
     """
     params = params or {}
 
-    d_mid = float(params.get('d_mid', min_distance * 2.5))
-    thin_mode = params.get('thin_mode', 'deterministic')
-    thin_prob = float(params.get('thin_probability', 0.8))
-    oversample = float(params.get('oversample_factor', 1.5))
-    topup_attempts = int(params.get('topup_attempts', 300))
+    d_mid = float(params.get("d_mid", min_distance * 2.5))
+    thin_mode = params.get("thin_mode", "deterministic")
+    thin_prob = float(params.get("thin_probability", 0.8))
+    oversample = float(params.get("oversample_factor", 1.5))
+    topup_attempts = int(params.get("topup_attempts", 300))
 
     # cluster params forwarded as-is (sample_clustered reads its own keys)
-    cluster_radius = float(params.get('cluster_radius', 3.0))
-    scatter_shape = params.get('scatter_shape', 'gaussian')
+    cluster_radius = float(params.get("cluster_radius", 3.0))
+    scatter_shape = params.get("scatter_shape", "gaussian")
     scatter_fn = _SCATTER_FNS.get(scatter_shape, _scatter_gaussian)
 
     # --- 1. over-sample a clustered pattern ---
     n_oversample = max(count, int(math.ceil(count * oversample)))
     raw = sample_clustered(
-        n_oversample, region, K, min_distance, existing_positions, params,
+        n_oversample,
+        region,
+        K,
+        min_distance,
+        existing_positions,
+        params,
     )
 
     # --- 2. thin at mid-range scale ---
-    if thin_mode == 'probabilistic':
+    if thin_mode == "probabilistic":
         thinned = _thin_probabilistic(raw, d_mid, p_remove=thin_prob)
     else:
         thinned = _thin_deterministic(raw, d_mid)
@@ -225,26 +245,34 @@ def sample_scale_dependent(count, region, K, min_distance, existing_positions, p
         deficit = count - len(thinned)
 
         # recover parent centres for top-up scatter
-        cluster_count = max(1, int(params.get('cluster_count', 5)))
-        allow_overlap = bool(params.get('allow_cluster_overlap', False))
+        cluster_count = max(1, int(params.get("cluster_count", 5)))
+        allow_overlap = bool(params.get("allow_cluster_overlap", False))
         if allow_overlap:
             min_parent_dist = 0.0
         else:
-            min_parent_dist = float(params.get('min_parent_distance',
-                                                cluster_radius * 0.5))
+            min_parent_dist = float(params.get("min_parent_distance", cluster_radius * 0.5))
         parents = _place_parents(cluster_count, region, K, min_parent_dist)
 
         extra = _topup(
-            existing_positions + thinned, deficit, parents,
-            cluster_radius, scatter_fn, region, K,
-            min_distance, d_mid, max_attempts=topup_attempts,
+            existing_positions + thinned,
+            deficit,
+            parents,
+            cluster_radius,
+            scatter_fn,
+            region,
+            K,
+            min_distance,
+            d_mid,
+            max_attempts=topup_attempts,
         )
         thinned.extend(extra)
 
         if len(thinned) < count:
             shortfall = count - len(thinned)
-            print(f"Warning [scale_dependent]: could only place "
-                  f"{len(thinned)}/{count} after thinning + top-up "
-                  f"(d_mid={d_mid:.2f}, shortfall={shortfall})")
+            print(
+                f"Warning [scale_dependent]: could only place "
+                f"{len(thinned)}/{count} after thinning + top-up "
+                f"(d_mid={d_mid:.2f}, shortfall={shortfall})"
+            )
 
     return thinned

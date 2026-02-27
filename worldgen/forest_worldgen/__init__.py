@@ -1,9 +1,4 @@
-"""
-Forest World Generation Package
-
-A modular world generation system for creating randomized forest environments
-with configurable spatial distributions and layouts.
-"""
+"""Provide utilities for generating randomized forest worlds."""
 
 __version__ = "0.3.0"
 
@@ -19,13 +14,13 @@ from .pipeline import generate_positions_from_config, run_generation
 # causes a RuntimeWarning ("found in sys.modules … prior to execution").
 
 __all__ = [
-    'patterns',
-    'layouts',
-    'export',
-    'spatial_stats',
-    'load_config',
-    'load_template',
-    'resolve_path',
-    'generate_positions_from_config',
-    'run_generation',
+    "patterns",
+    "layouts",
+    "export",
+    "spatial_stats",
+    "load_config",
+    "load_template",
+    "resolve_path",
+    "generate_positions_from_config",
+    "run_generation",
 ]

@@ -1,5 +1,5 @@
 """
-Regular / inhibitory point process  (Poisson-disc sampling)
+Model a regular inhibitory point process.
 
 Generates spatially repulsive tree placements that approximate
 plantation-style or competition-driven spacing.
@@ -24,10 +24,14 @@ import random
 # Bridson Poisson-disc core
 # ---------------------------------------------------------------------------
 
-def _bridson_poisson_disc(count, x_min, x_max, y_min, y_max, d_min,
-                          existing_positions, k_candidates=30):
+
+def _bridson_poisson_disc(
+    count, x_min, x_max, y_min, y_max, d_min, existing_positions, k_candidates=30
+):
     """
-    Bridson's algorithm for fast Poisson-disc sampling in a rectangular
+    Run Bridson's algorithm for Poisson-disc sampling.
+
+    Apply it in a rectangular
     domain [x_min, x_max] x [y_min, y_max].
 
     Parameters
@@ -55,8 +59,7 @@ def _bridson_poisson_disc(count, x_min, x_max, y_min, y_max, d_min,
         # degenerate: just uniform
         pts = []
         for _ in range(count):
-            pts.append((random.uniform(x_min, x_max),
-                         random.uniform(y_min, y_max)))
+            pts.append((random.uniform(x_min, x_max), random.uniform(y_min, y_max)))
         return pts
 
     cell = d_min / math.sqrt(2)
@@ -153,8 +156,10 @@ def _bridson_poisson_disc(count, x_min, x_max, y_min, y_max, d_min,
     # --- phase 3: if still short, relax and warn ---
     if len(new_points) < count:
         deficit = count - len(new_points)
-        print(f"Warning [regular]: could only place {len(new_points)}/{count} "
-              f"with d_min={d_min:.2f}; relaxing for {deficit} remaining points")
+        print(
+            f"Warning [regular]: could only place {len(new_points)}/{count} "
+            f"with d_min={d_min:.2f}; relaxing for {deficit} remaining points"
+        )
         for _ in range(deficit):
             cx = random.uniform(x_min, x_max)
             cy = random.uniform(y_min, y_max)
@@ -166,6 +171,7 @@ def _bridson_poisson_disc(count, x_min, x_max, y_min, y_max, d_min,
 # ---------------------------------------------------------------------------
 # Public API  (matches the sampler signature used by the rest of the system)
 # ---------------------------------------------------------------------------
+
 
 def sample_regular(count, region, K, min_distance, existing_positions, params):
     """
@@ -193,14 +199,14 @@ def sample_regular(count, region, K, min_distance, existing_positions, params):
     -------
     list[(float, float)]
     """
-    d_min = params.get('min_distance', min_distance)
-    k_cand = int(params.get('k_candidates', 30))
+    d_min = params.get("min_distance", min_distance)
+    k_cand = int(params.get("k_candidates", 30))
 
     if region is not None:
-        x_min = region['x_min']
-        x_max = region['x_max']
-        y_min = region['y_min']
-        y_max = region['y_max']
+        x_min = region["x_min"]
+        x_max = region["x_max"]
+        y_min = region["y_min"]
+        y_max = region["y_max"]
     else:
         x_min = -K / 2
         x_max = K / 2
@@ -208,6 +214,12 @@ def sample_regular(count, region, K, min_distance, existing_positions, params):
         y_max = K / 2
 
     return _bridson_poisson_disc(
-        count, x_min, x_max, y_min, y_max, d_min,
-        existing_positions, k_candidates=k_cand,
+        count,
+        x_min,
+        x_max,
+        y_min,
+        y_max,
+        d_min,
+        existing_positions,
+        k_candidates=k_cand,
     )

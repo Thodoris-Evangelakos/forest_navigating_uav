@@ -1,4 +1,6 @@
-#from __future__ import annotations
+"""Implement the fast in-memory forest navigation Gymnasium environment."""
+
+# from __future__ import annotations
 from typing import Any, Optional, Tuple
 from pathlib import Path
 import importlib
@@ -22,13 +24,10 @@ from fastsim_forest_nav.safety.geometry import (
 
 
 class ForestNavEnv(gym.Env):
-    """ Environment as expected by SBR3 with a continous action space of (v, wz, vz)
-    and an observation space of (lidar ranges..., cos(theta_goal), sin(theta_goal), forward_speed, yaw_rate, height_error)
+    """Provide a continuous-control forest navigation environment for SB3."""
 
-    Args:
-        gym (Env): parent gym class, inheriting from that
-    """
     def __init__(self, params: SimParams, render_mode: Optional[str] = None):
+        """Initialize environment state, spaces, and cached geometry."""
         super().__init__()
         self.p = params
         self.render_mode = render_mode
@@ -44,36 +43,34 @@ class ForestNavEnv(gym.Env):
         # clip((z_target -z) / z_scale, -1, 1)]
         # I can change forward speed to vx, vy normalized (+1 box size)
         obs_dim = self.p.lidar_num_beams + 6
-        self.observation_space = spaces.Box(
-            low = -1.0, high = 1.0, shape=(obs_dim,), dtype=np.float32
-        )
+        self.observation_space = spaces.Box(low=-1.0, high=1.0, shape=(obs_dim,), dtype=np.float32)
 
         # Action space: normalized acceleration commands in each axis.
         # a[0] -> forward accel, a[1] -> yaw accel, a[2] -> vertical accel
         # SAC in SB3 is built for continuous Box actions
-        self.action_space = spaces.Box(
-            low = -1.0, high = 1.0, shape = (3,), dtype = np.float32
-        )
+        self.action_space = spaces.Box(low=-1.0, high=1.0, shape=(3,), dtype=np.float32)
 
         self._t = 0.0
         self._step_count = 0
 
         # Cached lidar scan to avoid recomputation
         self._cached_lidar: np.ndarray | None = None
-        self._cached_min_range: float = float('inf')
+        self._cached_min_range: float = float("inf")
 
         # State example
-        self.pos = np.zeros(3, dtype=np.float32)  # x, y, z. Will probably rip it from the sim/gz directly for now
+        self.pos = np.zeros(
+            3, dtype=np.float32
+        )  # x, y, z. Will probably rip it from the sim/gz directly for now
         self.yaw = np.float32(0.0)
         self.v = np.float32(0.0)
         self.wz = np.float32(0.0)
         self.vz = np.float32(0.0)
 
         self.goal = np.zeros(3, dtype=np.float32)  # x, y, z
-        self.z_target = np.float32(0.0) # maintaing this height target for now
+        self.z_target = np.float32(0.0)  # maintaing this height target for now
 
-        self.trees = None # list/array of cylinders (x, y, radius)
-        self._prev_dist: Optional[float] = None # last distance, can use to calculate delta
+        self.trees = None  # list/array of cylinders (x, y, radius)
+        self._prev_dist: Optional[float] = None  # last distance, can use to calculate delta
         self._world_half_extent = float(self.p.world_radius)
         self._last_worldgen_seed: Optional[int] = None
         self._last_worldgen_selection: dict[str, Any] | None = None
@@ -199,7 +196,7 @@ class ForestNavEnv(gym.Env):
         return candidate_indices[in_range]
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
-        
+        """Reset state, (re)sample world assets, and return initial observation."""
         # gym seeding contract
         super().reset(seed=seed)
         self._t = 0.0
@@ -208,9 +205,8 @@ class ForestNavEnv(gym.Env):
 
         # Sample world, start, goal
         resample_every = max(1, int(getattr(self.p, "worldgen_resample_every_n_episodes", 1)))
-        should_resample_world = (
-            self.trees is None
-            or ((self._episode_counter - 1) % resample_every == 0)
+        should_resample_world = self.trees is None or (
+            (self._episode_counter - 1) % resample_every == 0
         )
 
         start_xy_anchor: np.ndarray | None = None
@@ -237,10 +233,11 @@ class ForestNavEnv(gym.Env):
         self._prev_dist = self._dist_to_goal()
 
         obs = self._get_obs()
-        info = self._get_info(shield_active = 0, collision = 0, success = 0, shield_delta = 0.0)
+        info = self._get_info(shield_active=0, collision=0, success=0, shield_delta=0.0)
         return obs, info
-    
+
     def step(self, action: np.ndarray):
+        """Advance one simulation step using acceleration-space actions."""
         action = np.asarray(action, dtype=np.float32)
 
         accel_v = _map_normalized_accel(float(action[0]), self.p.accel_v_max, self.p.decel_v_max)
@@ -285,10 +282,7 @@ class ForestNavEnv(gym.Env):
             decel_max=float(self.p.decel_vz_max),
         )
         accel_clipped = int(
-            bool(accel_clipped)
-            or slew_clipped_v
-            or slew_clipped_wz
-            or slew_clipped_vz
+            bool(accel_clipped) or slew_clipped_v or slew_clipped_wz or slew_clipped_vz
         )
 
         self.v = np.float32(applied_v)
@@ -320,9 +314,11 @@ class ForestNavEnv(gym.Env):
 
         # Weights saved in the dataclass
         reward = 0.0
-        reward += self.p.reward_progress_scale * d_progress # encourage progress towards goal
-        reward += self.p.reward_speed_scale * (applied_v / self.p.v_max) # encourage faster speeds
-        reward -= self.p.reward_step_penalty # small penalty for each step to encourage faster completion
+        reward += self.p.reward_progress_scale * d_progress  # encourage progress towards goal
+        reward += self.p.reward_speed_scale * (applied_v / self.p.v_max)  # encourage faster speeds
+        reward -= (
+            self.p.reward_step_penalty
+        )  # small penalty for each step to encourage faster completion
 
         speed_norm = abs(float(applied_v)) / max(float(self.p.v_max), 1e-6)
         yaw_rate_norm = abs(float(applied_wz)) / max(float(self.p.wz_max), 1e-6)
@@ -343,22 +339,24 @@ class ForestNavEnv(gym.Env):
                     self.p.yaw_penalty_speed_gate,
                     1e-6,
                 )
-                stall_penalty += 0.5 * self.p.reward_stall_penalty * float(
-                    np.clip(low_speed_ratio, 0.0, 1.0)
+                stall_penalty += (
+                    0.5 * self.p.reward_stall_penalty * float(np.clip(low_speed_ratio, 0.0, 1.0))
                 )
 
             reward -= stall_penalty
 
         soft_margin = _soft_clearance_margin(self.p)
         if clearance < soft_margin and soft_margin > 1e-6:
-            reward -= self.p.reward_proximity_scale * (soft_margin - clearance) / soft_margin # penalty for getting too close to obstacles
+            reward -= (
+                self.p.reward_proximity_scale * (soft_margin - clearance) / soft_margin
+            )  # penalty for getting too close to obstacles
         if shield_active:
             reward -= self.p.reward_shield_penalty
         if collision:
             reward -= self.p.reward_collision_penalty
         if success:
             reward += self.p.reward_success_bonus
-        
+
         terminated = bool(collision or success)
         self._step_count += 1
         self._t += self.p.dt
@@ -367,7 +365,9 @@ class ForestNavEnv(gym.Env):
         if truncated and not terminated:
             reward -= self.p.reward_truncation_penalty
 
-        obs = self._pack_obs(lidar, dist, np.float32(applied_v), np.float32(applied_wz)) # purposefully not including vz
+        obs = self._pack_obs(
+            lidar, dist, np.float32(applied_v), np.float32(applied_wz)
+        )  # purposefully not including vz
         info = self._get_info(
             shield_active=shield_active,
             collision=collision,
@@ -378,23 +378,20 @@ class ForestNavEnv(gym.Env):
             drone_radius=drone_radius,
         )
         return obs, float(reward), terminated, truncated, info
-    
-    def render(self):
-        """ Returns a bunch of info for the time being until I build an actual visualizer (Gazebo?)
 
-        Returns:
-            string: string with time, position, yaw, goal, velocity
-        """
+    def render(self):
+        """Return a compact textual snapshot of the current environment state."""
         return f"t={self._t:2f} pos = {self.pos} yaw = {float(self.yaw):.2f} goal = {self.goal} v = {float(self.v):.2f}"
-    
+
     def close(self):
-        """ Any cleanup if needed, not really necessary for this simple env but good to have the structure in place for future extensions
-        """
+        """Release environment resources if cleanup is required."""
         pass
 
     ### HELPER FUNCTIONS ###
 
-    def _pack_obs(self, lidar: np.ndarray, dist: float, v: np.float32, wz: np.float32) -> np.ndarray:
+    def _pack_obs(
+        self, lidar: np.ndarray, dist: float, v: np.float32, wz: np.float32
+    ) -> np.ndarray:
         # normalize lidar
         lidar_n = np.clip(lidar / self.p.lidar_range_max, 0.0, 1.0).astype(np.float32)
 
@@ -407,26 +404,34 @@ class ForestNavEnv(gym.Env):
         dist_n = np.clip(dist / (2.0 * self._world_half_extent), 0.0, 1.0)
         v_n = np.clip(v / self.p.v_max, -1.0, 1.0)
         wz_n = np.clip(wz / self.p.wz_max, -1.0, 1.0)
-        z_err = np.clip((float(self.z_target) - float(self.pos[2])) / self.p.z_error_scale, -1.0, 1.0)
+        z_err = np.clip(
+            (float(self.z_target) - float(self.pos[2])) / self.p.z_error_scale, -1.0, 1.0
+        )
 
         tail = np.array([c, s, dist_n, v_n, wz_n, z_err], dtype=np.float32)
         obs = np.concatenate([lidar_n, tail], axis=0).astype(np.float32)
         return obs
-    
+
     def _get_obs(self):
         lidar = self._lidar_scan()
         dist = self._dist_to_goal()
         obs = self._pack_obs(lidar, dist, self.v, self.wz)
         return obs
-    
-    def _get_info (self, **kwargs) -> dict[str, Any]:
+
+    def _get_info(self, **kwargs) -> dict[str, Any]:
         # Use cached values from step() to avoid recomputation
-        min_range = self._cached_min_range if self._cached_lidar is not None else float(np.min(self._lidar_scan()))
+        min_range = (
+            self._cached_min_range
+            if self._cached_lidar is not None
+            else float(np.min(self._lidar_scan()))
+        )
         info = {
             "dist_to_goal": float(self._dist_to_goal()),
             "min_range": min_range,
             "tree_count": int(0 if self.trees is None else len(self.trees)),
-            "worldgen_seed": int(self._last_worldgen_seed) if self._last_worldgen_seed is not None else None,
+            "worldgen_seed": int(self._last_worldgen_seed)
+            if self._last_worldgen_seed is not None
+            else None,
             "worldgen_layout": (
                 str(self._last_worldgen_selection.get("layout_ref"))
                 if isinstance(self._last_worldgen_selection, dict)
@@ -434,7 +439,10 @@ class ForestNavEnv(gym.Env):
                 else None
             ),
             "worldgen_distribution_refs": (
-                [str(v) for v in self._last_worldgen_selection.get("selected_distribution_refs", [])]
+                [
+                    str(v)
+                    for v in self._last_worldgen_selection.get("selected_distribution_refs", [])
+                ]
                 if isinstance(self._last_worldgen_selection, dict)
                 else []
             ),
@@ -442,11 +450,11 @@ class ForestNavEnv(gym.Env):
         info.update(kwargs)
         info["is_success"] = bool(info.get("success", False))
         return info
-    
+
     def _dist_to_goal(self) -> float:
         # for now just use euclidean distance in xy plane ignoring z. I can add that in later if needed but it might not be super helpful
         return float(np.linalg.norm(self.goal[:2] - self.pos[:2]))
-    
+
     def _apply_shield(self, v: float, wz: float, vz: float):
         """Velocity-barrier safety shield.
 
@@ -455,13 +463,17 @@ class ForestNavEnv(gym.Env):
         before being applied to the simulated state.
 
         Returns (safe_v, safe_wz, safe_vz, shield_active, shield_delta_norm)
-        #NOTE:XXX This might result in the drone just getting stuck? 
+        #NOTE:XXX This might result in the drone just getting stuck?
         """
         safe_v = float(v)
         safe_wz = float(wz)
         safe_vz = float(vz)
         shield_active = 0
-        v_decel_cap = float(self.p.decel_v_max) if float(self.p.decel_v_max) > 0.0 else float(self.p.accel_v_max)
+        v_decel_cap = (
+            float(self.p.decel_v_max)
+            if float(self.p.decel_v_max) > 0.0
+            else float(self.p.accel_v_max)
+        )
 
         # horizontal tree avoidance (query nearby trees only)
         if self.trees is not None and len(self.trees) > 0:
@@ -472,9 +484,16 @@ class ForestNavEnv(gym.Env):
             pos_xy = self.pos[:2].astype(np.float64)
 
             # dynamic lookahead: one-step motion + stopping distance + safety bubble
-            stopping_distance = (safe_v * safe_v) / max(2.0 * v_decel_cap, 1e-6) if safe_v > 0.0 else 0.0
+            stopping_distance = (
+                (safe_v * safe_v) / max(2.0 * v_decel_cap, 1e-6) if safe_v > 0.0 else 0.0
+            )
             protected_radius = _protected_radius(self.p)
-            lookahead = abs(safe_v) * self.p.dt + stopping_distance + protected_radius + self.p.shield_lookahead_margin
+            lookahead = (
+                abs(safe_v) * self.p.dt
+                + stopping_distance
+                + protected_radius
+                + self.p.shield_lookahead_margin
+            )
             nearby_idx = self._query_nearby_trees(float(self.pos[0]), float(self.pos[1]), lookahead)
 
             for idx in nearby_idx:
@@ -529,7 +548,11 @@ class ForestNavEnv(gym.Env):
             shield_active = 1
 
         # vertical ceiling guard
-        if float(self.p.shield_ceiling_z_max) > 0.0 and float(self.pos[2]) >= float(self.p.shield_ceiling_z_max) and safe_vz > 0.0:
+        if (
+            float(self.p.shield_ceiling_z_max) > 0.0
+            and float(self.pos[2]) >= float(self.p.shield_ceiling_z_max)
+            and safe_vz > 0.0
+        ):
             safe_vz = 0.0
             shield_active = 1
 
@@ -542,7 +565,13 @@ class ForestNavEnv(gym.Env):
         delta_norm = abs(v - safe_v) + abs(wz - safe_wz) + abs(vz - safe_vz)
         shield_delta = delta_norm / cmd_norm if cmd_norm > 1e-6 else 0.0
 
-        return np.float32(safe_v), np.float32(safe_wz), np.float32(safe_vz), int(shield_active), float(shield_delta)
+        return (
+            np.float32(safe_v),
+            np.float32(safe_wz),
+            np.float32(safe_vz),
+            int(shield_active),
+            float(shield_delta),
+        )
 
     def _integrate(self, v: np.float32, wz: np.float32, vz: np.float32):
         # simple kinematics
@@ -629,20 +658,13 @@ class ForestNavEnv(gym.Env):
 
         np.clip(ranges, 0.0, max_range, out=ranges)
         return ranges.astype(np.float32)
-    
+
     def _sample_forest(
         self,
         exclusion_centers: Optional[np.ndarray] = None,
         exclusion_radius: float = 0.0,
     ):
-        """ Samples a forest layout using the pure memory API of the worldgen code
-
-        Raises:
-            FileNotFoundError: Take a wild guess
-
-        Returns:
-            np.array: Array of shape (N, 3) with x, y coordinates and radius of each tree
-        """
+        """Sample tree positions/radii from worldgen and apply optional exclusions."""
         # Try package import first; if this file is run directly, ensure project paths
         # are available so worldgen can still be imported.
         if self._worldgen_generate_positions_fn is None:
@@ -702,7 +724,7 @@ class ForestNavEnv(gym.Env):
         )
         self._last_worldgen_selection = selection_meta if isinstance(selection_meta, dict) else None
 
-        area_size = float(world_config['generation']['area_size'])
+        area_size = float(world_config["generation"]["area_size"])
         self._world_half_extent = area_size / 2.0
 
         points_xy = np.asarray(positions_xy, dtype=np.float32)
@@ -784,18 +806,7 @@ class ForestNavEnv(gym.Env):
         x_bounds: Optional[Tuple[float, float]] = None,
         y_bounds: Optional[Tuple[float, float]] = None,
     ) -> np.ndarray:
-        """ Sampling the world for a viable (clear of trees) start or goal position
-            Obviously very junky approach, but should be fine for reasonable tree densities
-            If it becomes an issue I can use some data structure or just setup the worldgen to output some pre-sampled free points
-
-        Args:
-            clearance (float): Minimum distance from any tree that the sampled point must be
-
-        Returns:
-            np.ndarray: Array of shape (2,) with x, y coordinates of the sampled point. If no valid point is found after max attempts
-            returns (0, 0) which is likely to be in the middle of the world and hopefully not inside a tree (terrible idea I think, but saves us from looping forever)
-            I should probably raise an exception
-        """
+        """Sample a tree-free XY point within optional bounds and clearance."""
         if x_bounds is None:
             half = self._effective_world_half_extent()
             x_bounds = (-half, half)
@@ -819,20 +830,19 @@ class ForestNavEnv(gym.Env):
                 return np.array([x, y], dtype=np.float32)
 
         return np.array([0.0, 0.0], dtype=np.float32)
-    
-    def _sample_start_pose(self, preferred_xy: Optional[np.ndarray] = None):
-        """ Sample a start pose (x, y, z, yaw) that is clear of trees and respects the clearance requirement
 
-        Returns:
-            np.array: Array of shape (3,) with x, y, z coordinates of the start position, and a separate float for yaw
-            The z coordinate is set to the default_z_target for now, but I can change that later if I want to add some verticality to the start/goal sampling
-        """
+    def _sample_start_pose(self, preferred_xy: Optional[np.ndarray] = None):
+        """Sample a collision-free start pose near boundary bands."""
         if preferred_xy is not None:
             preferred = np.asarray(preferred_xy, dtype=np.float32)
             if preferred.shape[0] >= 2:
-                if self._point_clear_of_trees(float(preferred[0]), float(preferred[1]), self.p.start_goal_clearance):
+                if self._point_clear_of_trees(
+                    float(preferred[0]), float(preferred[1]), self.p.start_goal_clearance
+                ):
                     yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
-                    return np.array([preferred[0], preferred[1], self.p.default_z_target], dtype=np.float32), yaw
+                    return np.array(
+                        [preferred[0], preferred[1], self.p.default_z_target], dtype=np.float32
+                    ), yaw
 
         half = float(self._effective_world_half_extent())
         band_inner = 0.55 * half
@@ -855,23 +865,25 @@ class ForestNavEnv(gym.Env):
             )
             if not np.allclose(start_xy, 0.0):
                 yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
-                return np.array([start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32), yaw
+                return np.array(
+                    [start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32
+                ), yaw
 
         start_xy = self._sample_free_xy(clearance=self.p.start_goal_clearance)
         yaw = np.float32(self.np_random.uniform(-np.pi, np.pi))
         return np.array([start_xy[0], start_xy[1], self.p.default_z_target], dtype=np.float32), yaw
-    
-    def _sample_goal_pose(self, preferred_xy: Optional[np.ndarray] = None):
-        """ Same idea as sample start pose, find a free (x, y) goal position
 
-        Returns:
-            np.array: Array of shape (3,) with x, y, z coordinates of the goal position
-        """
+    def _sample_goal_pose(self, preferred_xy: Optional[np.ndarray] = None):
+        """Sample a collision-free goal pose opposite from the start side."""
         if preferred_xy is not None:
             preferred = np.asarray(preferred_xy, dtype=np.float32)
             if preferred.shape[0] >= 2:
-                if self._point_clear_of_trees(float(preferred[0]), float(preferred[1]), self.p.start_goal_clearance):
-                    return np.array([preferred[0], preferred[1], self.p.default_z_target], dtype=np.float32)
+                if self._point_clear_of_trees(
+                    float(preferred[0]), float(preferred[1]), self.p.start_goal_clearance
+                ):
+                    return np.array(
+                        [preferred[0], preferred[1], self.p.default_z_target], dtype=np.float32
+                    )
 
         half = float(self._effective_world_half_extent())
         band_inner = 0.55 * half
@@ -905,26 +917,56 @@ class ForestNavEnv(gym.Env):
             if np.linalg.norm(goal_xy - self.pos[:2]) >= self.p.min_start_goal_distance:
                 return np.array([goal_xy[0], goal_xy[1], self.p.default_z_target], dtype=np.float32)
 
-        fallback = np.array([
-            -np.sign(float(start_xy[0])) * band_inner if axis == 0 else 0.0,
-            -np.sign(float(start_xy[1])) * band_inner if axis == 1 else 0.0,
-        ], dtype=np.float32)
+        fallback = np.array(
+            [
+                -np.sign(float(start_xy[0])) * band_inner if axis == 0 else 0.0,
+                -np.sign(float(start_xy[1])) * band_inner if axis == 1 else 0.0,
+            ],
+            dtype=np.float32,
+        )
         return np.array([fallback[0], fallback[1], self.p.default_z_target], dtype=np.float32)
-    
+
+
 if __name__ == "__main__":
     # Minimal test params - for real usage, load from sac.yaml via utils.build_env_params
     params = SimParams(
-        dt=0.1, lidar_num_beams=180, lidar_range_max=30.0, v_max=6.0, wz_max=2.5, vz_max=2.0,
-        r_safe=0.6, episode_seconds=30.0, goal_tolerance=0.5, world_radius=20.0,
-        collision_threshold=0.05, default_z_target=2.0, z_error_scale=5.0,
-        reward_progress_scale=2.0, reward_speed_scale=0.02, reward_step_penalty=0.02,
-        reward_proximity_scale=0.2, reward_shield_penalty=0.02, reward_collision_penalty=20.0,
-        reward_success_bonus=5.0, reward_truncation_penalty=1.0, reward_yaw_rate_scale=0.03,
-        reward_stall_penalty=0.05, progress_stall_threshold=0.02, yaw_penalty_speed_gate=0.25,
-        shield_floor_z_min=0.05, shield_yaw_damping=0.35, shield_lookahead_margin=1.0,
-        worldgen_config_relpath="configs/worldgen/worldgen_run.yaml", worldgen_seed_offset=0,
-        tree_radius_mean=0.25, tree_radius_std=0.05, tree_radius_min=0.10, tree_radius_max=0.60,
-        start_goal_clearance=1.0, min_start_goal_distance=8.0, spawn_max_attempts=500
+        dt=0.1,
+        lidar_num_beams=180,
+        lidar_range_max=30.0,
+        v_max=6.0,
+        wz_max=2.5,
+        vz_max=2.0,
+        r_safe=0.6,
+        episode_seconds=30.0,
+        goal_tolerance=0.5,
+        world_radius=20.0,
+        collision_threshold=0.05,
+        default_z_target=2.0,
+        z_error_scale=5.0,
+        reward_progress_scale=2.0,
+        reward_speed_scale=0.02,
+        reward_step_penalty=0.02,
+        reward_proximity_scale=0.2,
+        reward_shield_penalty=0.02,
+        reward_collision_penalty=20.0,
+        reward_success_bonus=5.0,
+        reward_truncation_penalty=1.0,
+        reward_yaw_rate_scale=0.03,
+        reward_stall_penalty=0.05,
+        progress_stall_threshold=0.02,
+        yaw_penalty_speed_gate=0.25,
+        shield_floor_z_min=0.05,
+        shield_yaw_damping=0.35,
+        shield_lookahead_margin=1.0,
+        worldgen_config_relpath="configs/worldgen/worldgen_run.yaml",
+        worldgen_seed_offset=0,
+        tree_radius_mean=0.25,
+        tree_radius_std=0.05,
+        tree_radius_min=0.10,
+        tree_radius_max=0.60,
+        start_goal_clearance=1.0,
+        min_start_goal_distance=8.0,
+        spawn_max_attempts=500,
     )
     env = ForestNavEnv(params)
     check_env(env, warn=True)

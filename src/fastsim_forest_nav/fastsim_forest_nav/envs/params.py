@@ -1,3 +1,5 @@
+"""Define simulation parameter dataclasses for navigation environments."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -5,6 +7,8 @@ from dataclasses import dataclass, field
 
 @dataclass
 class SimParams:
+    """Store configurable dynamics, sensing, reward, and sampling parameters."""
+
     dt: float
     lidar_num_beams: int
     lidar_range_max: float

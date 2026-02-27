@@ -1,3 +1,5 @@
+"""Visualize rollout trajectories on generated forest maps."""
+
 from __future__ import annotations
 
 import argparse
@@ -22,6 +24,7 @@ from stable_baselines3.common.vec_env import DummyVecEnv, VecNormalize
 
 
 def parse_args() -> argparse.Namespace:
+    """Parse command-line arguments for trajectory visualization."""
     parser = argparse.ArgumentParser(description="Visualize agent trajectories on forest map")
     parser.add_argument(
         "--model",
@@ -75,6 +78,7 @@ def parse_args() -> argparse.Namespace:
 
 
 def load_env_ctor_and_kwargs(config_path: Path | None):
+    """Load environment constructor and kwargs from config path."""
     if config_path is None or not config_path.exists():
         cfg: dict[str, dict] = {"env": {"backend": "fastsim", "env_kwargs": {"params": {}}}}
     else:
@@ -85,6 +89,7 @@ def load_env_ctor_and_kwargs(config_path: Path | None):
 
 
 def resolve_config_path(model_path: Path, config_path: Path | None) -> Path | None:
+    """Resolve config file path from explicit input or run defaults."""
     if config_path is not None:
         return config_path
 
@@ -97,6 +102,7 @@ def resolve_config_path(model_path: Path, config_path: Path | None) -> Path | No
 
 
 def resolve_model_path(model_path: Path) -> Path:
+    """Resolve the best existing model path from common naming variants."""
     candidates: list[Path] = [model_path]
 
     path_str = str(model_path)
@@ -130,6 +136,7 @@ def resolve_model_path(model_path: Path) -> Path:
 
 
 def resolve_vecnormalize_path(model_path: Path) -> Path | None:
+    """Resolve candidate VecNormalize statistics file for a given model."""
     model_parent = model_path.parent
 
     candidates = [
@@ -150,6 +157,7 @@ def load_obs_normalizer(
     env_ctor,
     env_kwargs: dict,
 ) -> VecNormalize | None:
+    """Load VecNormalize statistics for observation normalization."""
     if vecnormalize_path is None:
         return None
 
@@ -184,7 +192,14 @@ def plot_trajectory_map(
     # Plot trees as circles
     if trees is not None and len(trees) > 0:
         tree_patches = [
-            Circle((tree[0], tree[1]), tree[2], facecolor="darkgreen", alpha=0.7, edgecolor="black", linewidth=0.5)
+            Circle(
+                (tree[0], tree[1]),
+                tree[2],
+                facecolor="darkgreen",
+                alpha=0.7,
+                edgecolor="black",
+                linewidth=0.5,
+            )
             for tree in trees
         ]
         tree_collection = PatchCollection(tree_patches, match_original=True)
@@ -311,6 +326,7 @@ def compute_collision_diagnostics(
     trajectory: np.ndarray,
     trees: np.ndarray,
 ) -> dict[str, Any]:
+    """Estimate final-step collision source and clearances for a trajectory."""
     if trajectory.size == 0:
         return {
             "final_x": None,
@@ -393,9 +409,7 @@ def run_episode_with_trajectory(
     while not (terminated or truncated):
         policy_obs = obs
         if obs_normalizer is not None:
-            normalized_obs = obs_normalizer.normalize_obs(
-                np.asarray([obs], dtype=np.float32)
-            )
+            normalized_obs = obs_normalizer.normalize_obs(np.asarray([obs], dtype=np.float32))
             policy_obs = np.asarray(normalized_obs, dtype=np.float32)[0]
         action, _states = model.predict(policy_obs, deterministic=deterministic)
         obs, reward, terminated, truncated, info = env.step(action)
@@ -414,6 +428,7 @@ def run_episode_with_trajectory(
 
 
 def main() -> None:
+    """Generate trajectory plots and diagnostics for one or more episodes."""
     matplotlib.use("Agg")
     args = parse_args()
 
@@ -444,17 +459,23 @@ def main() -> None:
         env.reset(seed=args.seed)
 
     # Determine output directory
-    output_dir = args.output_dir if args.output_dir is not None else resolved_model_path.parent / "trajectories"
+    output_dir = (
+        args.output_dir
+        if args.output_dir is not None
+        else resolved_model_path.parent / "trajectories"
+    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Run episodes and generate plots
     episode_stats = []
     for episode_idx in range(args.num_episodes):
-        trajectory, trees, start_pos, goal_pos, success, collision, diagnostics = run_episode_with_trajectory(
-            env,
-            model,
-            deterministic=args.deterministic,
-            obs_normalizer=obs_normalizer,
+        trajectory, trees, start_pos, goal_pos, success, collision, diagnostics = (
+            run_episode_with_trajectory(
+                env,
+                model,
+                deterministic=args.deterministic,
+                obs_normalizer=obs_normalizer,
+            )
         )
 
         episode_stats.append(
@@ -470,7 +491,9 @@ def main() -> None:
                 "num_trees": len(trees),
                 "worldgen_seed": env.episode_reset_info.get("worldgen_seed"),
                 "worldgen_layout": env.episode_reset_info.get("worldgen_layout"),
-                "worldgen_distribution_refs": list(env.episode_reset_info.get("worldgen_distribution_refs", [])),
+                "worldgen_distribution_refs": list(
+                    env.episode_reset_info.get("worldgen_distribution_refs", [])
+                ),
                 **diagnostics,
             }
         )
@@ -489,7 +512,9 @@ def main() -> None:
             episode_idx,
             success,
             collision,
-            boundary_half_extent=float(boundary_half_extent) if boundary_half_extent is not None else None,
+            boundary_half_extent=float(boundary_half_extent)
+            if boundary_half_extent is not None
+            else None,
         )
         print(f"Saved trajectory plot: {output_path}")
 
@@ -502,8 +527,8 @@ def main() -> None:
     success_count = sum(1 for stat in episode_stats if stat["success"])
     collision_count = sum(1 for stat in episode_stats if stat["collision"])
     print(f"\nSummary ({args.num_episodes} episodes):")
-    print(f"  Success: {success_count} ({100*success_count/args.num_episodes:.1f}%)")
-    print(f"  Collision: {collision_count} ({100*collision_count/args.num_episodes:.1f}%)")
+    print(f"  Success: {success_count} ({100 * success_count / args.num_episodes:.1f}%)")
+    print(f"  Collision: {collision_count} ({100 * collision_count / args.num_episodes:.1f}%)")
     print(f"  Truncated: {args.num_episodes - success_count - collision_count}")
     print(f"\nAll trajectory plots saved to: {output_dir}")
 

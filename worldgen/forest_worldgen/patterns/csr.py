@@ -22,10 +22,11 @@ import math
 # Geometry helpers  (re-used by other pattern modules)
 # ---------------------------------------------------------------------------
 
+
 def _point_in_rect(region):
     """Sample a uniform random point inside a rectangular region."""
-    x = random.uniform(region['x_min'], region['x_max'])
-    y = random.uniform(region['y_min'], region['y_max'])
+    x = random.uniform(region["x_min"], region["x_max"])
+    y = random.uniform(region["y_min"], region["y_max"])
     return x, y
 
 
@@ -36,7 +37,7 @@ def _point_in_area(K):
 
 def _check_min_distance(x, y, positions, min_distance):
     """Return True if (x, y) is at least *min_distance* from every position.
-    
+
     Brute-force O(n) fallback — prefer using ProximityGrid for hot loops.
     """
     for px, py in positions:
@@ -49,27 +50,28 @@ def _check_min_distance(x, y, positions, min_distance):
 # Grid-based spatial index for O(1) amortised proximity checks
 # ---------------------------------------------------------------------------
 
+
 class ProximityGrid:
     """Uniform grid that accelerates minimum-distance queries.
-    
+
     Cell size equals *min_distance* so only a 5×5 neighbourhood
     needs checking — constant-time per query regardless of total
     point count.
     """
 
-    __slots__ = ('cell', 'grid', 'points')
+    __slots__ = ("cell", "grid", "points")
 
     def __init__(self, min_distance, initial_points=None):
+        """Initialize the grid with a minimum distance and optional seed points."""
         self.cell = max(min_distance, 1e-9)
-        self.grid = {}          # (col, row) -> list of (x, y)
+        self.grid = {}  # (col, row) -> list of (x, y)
         self.points = []
         if initial_points:
             for pt in initial_points:
                 self.insert(*pt)
 
     def _key(self, x, y):
-        return (int(math.floor(x / self.cell)),
-                int(math.floor(y / self.cell)))
+        return (int(math.floor(x / self.cell)), int(math.floor(y / self.cell)))
 
     def insert(self, x, y):
         """Add a point to the grid."""
@@ -100,6 +102,7 @@ class ProximityGrid:
 # ---------------------------------------------------------------------------
 # Sampler
 # ---------------------------------------------------------------------------
+
 
 def sample_csr(count, region, K, min_distance, existing_positions, params):
     """
@@ -138,18 +141,18 @@ def sample_csr(count, region, K, min_distance, existing_positions, params):
     params = params or {}
 
     # --- resolve effective guard distance ---
-    if params.get('use_world_min_distance', False):
+    if params.get("use_world_min_distance", False):
         guard = min_distance
     else:
-        guard = float(params.get('overlap_guard', 0.0))
+        guard = float(params.get("overlap_guard", 0.0))
 
-    max_attempts = int(params.get('max_attempts', 200))
+    max_attempts = int(params.get("max_attempts", 200))
 
     # Use grid-accelerated proximity checks when guard > 0
     use_grid = guard > 0
     if use_grid:
         grid = ProximityGrid(guard, existing_positions)
-    
+
     positions = []
     relaxed_count = 0
 

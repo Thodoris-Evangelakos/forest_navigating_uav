@@ -15,6 +15,7 @@ import math
 try:
     import numpy as np
     from scipy.spatial import KDTree
+
     _HAS_SCIPY = True
 except ImportError:
     _HAS_SCIPY = False
@@ -24,9 +25,10 @@ except ImportError:
 # helpers
 # ---------------------------------------------------------------------------
 
+
 def _nn_distances(positions):
     """Return list of nearest-neighbour distances.
-    
+
     Uses scipy KDTree for O(n log n) when available, falls back to
     brute-force O(n**2) otherwise.
     """
@@ -57,7 +59,7 @@ def _nn_distances(positions):
 
 def _pairwise_distances(positions, r_max=None):
     """Return flat list of pairwise distances (no duplicates).
-    
+
     When *r_max* is given and scipy is available, uses KDTree.sparse_distance_matrix
     to avoid materialising all n*(n-1)/2 pairs — only pairs within r_max are stored.
     """
@@ -66,7 +68,7 @@ def _pairwise_distances(positions, r_max=None):
     if _HAS_SCIPY and r_max is not None and r_max > 0:
         pts = np.asarray(positions, dtype=np.float64)
         tree = KDTree(pts)
-        sparse = tree.sparse_distance_matrix(tree, r_max, output_type='ndarray')
+        sparse = tree.sparse_distance_matrix(tree, r_max, output_type="ndarray")
         # sparse is structured array with (i, j, v); i < j not guaranteed
         dists = [float(row[2]) for row in sparse if row[0] < row[1]]
         return dists
@@ -84,6 +86,7 @@ def _pairwise_distances(positions, r_max=None):
 # Clark-Evans R
 # ---------------------------------------------------------------------------
 
+
 def clark_evans_R(positions, area):
     """
     Clark-Evans nearest-neighbour index.
@@ -96,18 +99,19 @@ def clark_evans_R(positions, area):
     """
     nn = _nn_distances(positions)
     if not nn or area <= 0:
-        return float('nan')
+        return float("nan")
     mean_obs = sum(nn) / len(nn)
     density = len(positions) / area
     mean_csr = 0.5 / math.sqrt(density)
     if mean_csr <= 0:
-        return float('nan')
+        return float("nan")
     return mean_obs / mean_csr
 
 
 # ---------------------------------------------------------------------------
 # Pair correlation  g(r)
 # ---------------------------------------------------------------------------
+
 
 def pair_correlation(positions, area, r_max=None, n_bins=25):
     """
@@ -149,13 +153,13 @@ def pair_correlation(positions, area, r_max=None, n_bins=25):
         r_lo = b * dr
         r_hi = (b + 1) * dr
         r_mid = (r_lo + r_hi) / 2.0
-        ring_area = math.pi * (r_hi ** 2 - r_lo ** 2)
+        ring_area = math.pi * (r_hi**2 - r_lo**2)
         if ring_area <= 0:
             continue
         # each pair counted once; expected under CSR = n*(n-1)/2 * ring_area/area
         expected = 0.5 * n * (n - 1) * ring_area / area
         g = counts[b] / expected if expected > 0 else 0.0
-        results.append({'r': round(r_mid, 4), 'g': round(g, 4)})
+        results.append({"r": round(r_mid, 4), "g": round(g, 4)})
 
     return results
 
@@ -163,6 +167,7 @@ def pair_correlation(positions, area, r_max=None, n_bins=25):
 # ---------------------------------------------------------------------------
 # Ripley's L(r) - r
 # ---------------------------------------------------------------------------
+
 
 def ripley_L_minus_r(positions, area, r_max=None, n_bins=25):
     """
@@ -202,7 +207,7 @@ def ripley_L_minus_r(positions, area, r_max=None, n_bins=25):
         # each pair counted once in dists; K uses ordered pairs so multiply by 2
         K = area / (n * n) * (2 * cum_count)
         L = math.sqrt(K / math.pi) if K >= 0 else 0.0
-        results.append({'r': round(r, 4), 'L_minus_r': round(L - r, 4)})
+        results.append({"r": round(r, 4), "L_minus_r": round(L - r, 4)})
 
     return results
 
@@ -210,6 +215,7 @@ def ripley_L_minus_r(positions, area, r_max=None, n_bins=25):
 # ---------------------------------------------------------------------------
 # Public convenience: compute all stats at once
 # ---------------------------------------------------------------------------
+
 
 def compute_validation_stats(positions, area_size):
     """
@@ -222,7 +228,7 @@ def compute_validation_stats(positions, area_size):
     Returns:
         dict ready for JSON serialisation.
     """
-    area = area_size ** 2
+    area = area_size**2
     R = clark_evans_R(positions, area)
 
     # choose r_max relative to world; ~ 1/4 of the side
@@ -233,22 +239,18 @@ def compute_validation_stats(positions, area_size):
 
     # summarise g(r) at small r  (first 5 bins)
     g_small = g[:5] if g else []
-    g_small_mean = (
-        sum(item['g'] for item in g_small) / len(g_small) if g_small else float('nan')
-    )
+    g_small_mean = sum(item["g"] for item in g_small) / len(g_small) if g_small else float("nan")
 
     # summarise L(r)-r at small r
     L_small = L[:5] if L else []
     L_small_mean = (
-        sum(item['L_minus_r'] for item in L_small) / len(L_small)
-        if L_small
-        else float('nan')
+        sum(item["L_minus_r"] for item in L_small) / len(L_small) if L_small else float("nan")
     )
 
     return {
-        'clark_evans_R': round(R, 4) if not math.isnan(R) else None,
-        'g_small_r_mean': round(g_small_mean, 4) if not math.isnan(g_small_mean) else None,
-        'L_small_r_mean': round(L_small_mean, 4) if not math.isnan(L_small_mean) else None,
-        'pair_correlation': g,
-        'ripley_L_minus_r': L,
+        "clark_evans_R": round(R, 4) if not math.isnan(R) else None,
+        "g_small_r_mean": round(g_small_mean, 4) if not math.isnan(g_small_mean) else None,
+        "L_small_r_mean": round(L_small_mean, 4) if not math.isnan(L_small_mean) else None,
+        "pair_correlation": g,
+        "ripley_L_minus_r": L,
     }

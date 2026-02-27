@@ -1,4 +1,4 @@
-.PHONY: setup venv-rebuild ensure-venv verify check lint test package worldgen worldgen-run gazebo-world gazebo-spawn-uav gazebo-agent gazebo-stop rl-train rl-resume rl-eval rl-tensorboard rl-compare rl-trajectories rl-gazebo-demo clean-generated clean deep-clean help
+.PHONY: setup venv-rebuild ensure-venv verify check lint test package worldgen worldgen-run gazebo-world gazebo-spawn-uav gazebo-agent gazebo-stop rl-train rl-resume rl-eval rl-tensorboard rl-compare rl-trajectories clean-generated clean deep-clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
@@ -43,7 +43,6 @@ help:
 	@echo "  rl-train auto-generates report/ on run end (including graceful Ctrl+C)"
 	@echo "  rl-compare  - Build multi-run comparison report"
 	@echo "  rl-trajectories - Visualize trajectories (MODEL=..., TRAJ_CONFIG=... optional, DEVICE=...)"
-	@echo "  rl-gazebo-demo - Launch Gazebo (paused by default), run demo (override MODEL=... NUM_EPISODES=... GAZEBO_PAUSED_START=0)"
 	@echo "  clean-generated - Remove caches, egg-info, and generated worldgen outputs"
 	@echo "  clean       - Alias to clean-generated"
 	@echo "  deep-clean  - Clean generated artifacts plus .venv and dist/"
@@ -217,9 +216,6 @@ rl-trajectories: ensure-venv
 	else \
 		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --num-episodes $(NUM_EPISODES) --device $(DEVICE); \
 	fi
-
-rl-gazebo-demo:
-	./scripts/rl/gazebo_demo.sh 42 "$(MODEL)" $(NUM_EPISODES)
 
 clean-generated:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true

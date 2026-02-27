@@ -1,3 +1,5 @@
+"""Expose dynamics-control helpers for UAV command shaping."""
+
 from fastsim_forest_nav.dynamics.controls import (
     accel_limit_velocity,
     approach_speed_cap,

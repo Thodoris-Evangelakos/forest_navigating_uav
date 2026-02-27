@@ -1,3 +1,5 @@
+"""Implement the Gazebo-backed forest navigation Gymnasium environment."""
+
 from __future__ import annotations
 
 from dataclasses import dataclass, field
@@ -32,6 +34,7 @@ class GazeboParams(SimParams):
     The defaults here match the values in sac_gazebo.yaml and serve as
     documentation; they should always be explicitly set via that config.
     """
+
     odom_topic: str = "/odom"
     scan_topic: str = "/scan"
     cmd_vel_topic: str = "/model/uav1/cmd_vel"
@@ -47,7 +50,10 @@ class GazeboParams(SimParams):
 
 
 class GazeboForestNavEnv(gym.Env):
+    """Provide a Gazebo/ROS2 environment with lidar-based safety shielding."""
+
     def __init__(self, params: GazeboParams, render_mode: Optional[str] = None):
+        """Initialize ROS interfaces, spaces, and simulation state buffers."""
         super().__init__()
         self.p = params
         self.render_mode = render_mode
@@ -81,8 +87,12 @@ class GazeboForestNavEnv(gym.Env):
         self._prev_dist: Optional[float] = None
         self._world_half_extent = float(self.p.world_radius)
 
-        self._latest_scan_raw: np.ndarray = np.full((self.p.lidar_num_beams,), self.p.lidar_range_max, dtype=np.float32)
-        self._latest_scan_angles: np.ndarray = np.linspace(-np.pi, np.pi, self.p.lidar_num_beams, endpoint=False, dtype=np.float32)
+        self._latest_scan_raw: np.ndarray = np.full(
+            (self.p.lidar_num_beams,), self.p.lidar_range_max, dtype=np.float32
+        )
+        self._latest_scan_angles: np.ndarray = np.linspace(
+            -np.pi, np.pi, self.p.lidar_num_beams, endpoint=False, dtype=np.float32
+        )
         self._have_scan = False
         self._have_odom = False
 
@@ -165,7 +175,9 @@ class GazeboForestNavEnv(gym.Env):
                 self.pos[2] = np.float32(msg.pose.pose.position.z)
 
                 q = msg.pose.pose.orientation
-                self.yaw = np.float32(math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z)))
+                self.yaw = np.float32(
+                    math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
+                )
 
                 # capture twist for hybrid dynamics feedback
                 self._odom_v = np.float32(msg.twist.twist.linear.x)
@@ -185,15 +197,21 @@ class GazeboForestNavEnv(gym.Env):
 
                 angle_min = float(msg.angle_min)
                 angle_increment = float(msg.angle_increment)
-                angles = angle_min + angle_increment * np.arange(sanitized.shape[0], dtype=np.float32)
+                angles = angle_min + angle_increment * np.arange(
+                    sanitized.shape[0], dtype=np.float32
+                )
                 angles = np.arctan2(np.sin(angles), np.cos(angles))
 
                 self._latest_scan_raw = sanitized
                 self._latest_scan_angles = angles.astype(np.float32)
                 self._have_scan = True
 
-            node.create_subscription(Odometry, self.p.odom_topic, odom_callback, qos_profile_sensor_data)
-            node.create_subscription(LaserScan, self.p.scan_topic, scan_callback, qos_profile_sensor_data)
+            node.create_subscription(
+                Odometry, self.p.odom_topic, odom_callback, qos_profile_sensor_data
+            )
+            node.create_subscription(
+                LaserScan, self.p.scan_topic, scan_callback, qos_profile_sensor_data
+            )
 
             if self.p.use_sim_reset_service:
                 from std_srvs.srv import Empty
@@ -277,13 +295,17 @@ class GazeboForestNavEnv(gym.Env):
         if src_ranges.shape[0] == self.p.lidar_num_beams:
             return src_ranges.astype(np.float32), src_angles.astype(np.float32)
 
-        target_angles = np.linspace(-np.pi, np.pi, self.p.lidar_num_beams, endpoint=False, dtype=np.float32)
+        target_angles = np.linspace(
+            -np.pi, np.pi, self.p.lidar_num_beams, endpoint=False, dtype=np.float32
+        )
 
         order = np.argsort(src_angles)
         sorted_angles = src_angles[order]
         sorted_ranges = src_ranges[order]
 
-        wrapped_angles = np.concatenate([sorted_angles - 2.0 * np.pi, sorted_angles, sorted_angles + 2.0 * np.pi])
+        wrapped_angles = np.concatenate(
+            [sorted_angles - 2.0 * np.pi, sorted_angles, sorted_angles + 2.0 * np.pi]
+        )
         wrapped_ranges = np.concatenate([sorted_ranges, sorted_ranges, sorted_ranges])
 
         interp = np.interp(target_angles, wrapped_angles, wrapped_ranges)
@@ -293,7 +315,9 @@ class GazeboForestNavEnv(gym.Env):
     def _dist_to_goal(self) -> float:
         return float(np.linalg.norm(self.goal[:2] - self.pos[:2]))
 
-    def _pack_obs(self, lidar: np.ndarray, dist: float, v: np.float32, wz: np.float32) -> np.ndarray:
+    def _pack_obs(
+        self, lidar: np.ndarray, dist: float, v: np.float32, wz: np.float32
+    ) -> np.ndarray:
         lidar_n = np.clip(lidar / self.p.lidar_range_max, 0.0, 1.0).astype(np.float32)
 
         dx = float(self.goal[0] - self.pos[0])
@@ -304,7 +328,9 @@ class GazeboForestNavEnv(gym.Env):
         dist_n = np.clip(dist / (2.0 * self._world_half_extent), 0.0, 1.0)
         v_n = np.clip(v / self.p.v_max, -1.0, 1.0)
         wz_n = np.clip(wz / self.p.wz_max, -1.0, 1.0)
-        z_err = np.clip((float(self.z_target) - float(self.pos[2])) / self.p.z_error_scale, -1.0, 1.0)
+        z_err = np.clip(
+            (float(self.z_target) - float(self.pos[2])) / self.p.z_error_scale, -1.0, 1.0
+        )
 
         tail = np.array([c, s, dist_n, v_n, wz_n, z_err], dtype=np.float32)
         return np.concatenate([lidar_n, tail], axis=0).astype(np.float32)
@@ -332,7 +358,11 @@ class GazeboForestNavEnv(gym.Env):
             boundary_front = self._distance_to_world_boundary_along_motion(safe_v)
             front_min = min(front_min, boundary_front)
 
-            v_decel_cap = float(self.p.decel_v_max) if float(self.p.decel_v_max) > 0.0 else float(self.p.accel_v_max)
+            v_decel_cap = (
+                float(self.p.decel_v_max)
+                if float(self.p.decel_v_max) > 0.0
+                else float(self.p.accel_v_max)
+            )
 
             # dynamics-aware speed cap so one-step travel + braking distance stays safe
             protected_radius = _protected_radius(self.p)
@@ -351,7 +381,11 @@ class GazeboForestNavEnv(gym.Env):
             safe_vz = 0.0
             shield_active = 1
 
-        if float(self.p.shield_ceiling_z_max) > 0.0 and float(self.pos[2]) >= float(self.p.shield_ceiling_z_max) and safe_vz > 0.0:
+        if (
+            float(self.p.shield_ceiling_z_max) > 0.0
+            and float(self.pos[2]) >= float(self.p.shield_ceiling_z_max)
+            and safe_vz > 0.0
+        ):
             safe_vz = 0.0
             shield_active = 1
 
@@ -359,7 +393,13 @@ class GazeboForestNavEnv(gym.Env):
         delta_norm = abs(v - safe_v) + abs(wz - safe_wz) + abs(vz - safe_vz)
         shield_delta = delta_norm / cmd_norm if cmd_norm > 1e-6 else 0.0
 
-        return np.float32(safe_v), np.float32(safe_wz), np.float32(safe_vz), int(shield_active), float(shield_delta)
+        return (
+            np.float32(safe_v),
+            np.float32(safe_wz),
+            np.float32(safe_vz),
+            int(shield_active),
+            float(shield_delta),
+        )
 
     def _get_info(self, **kwargs) -> dict[str, Any]:
         lidar, _ = self._resample_lidar()
@@ -374,7 +414,9 @@ class GazeboForestNavEnv(gym.Env):
         info["is_success"] = bool(info.get("success", False))
         return info
 
-    def _sample_xy_in_bounds(self, x_bounds: tuple[float, float], y_bounds: tuple[float, float]) -> np.ndarray:
+    def _sample_xy_in_bounds(
+        self, x_bounds: tuple[float, float], y_bounds: tuple[float, float]
+    ) -> np.ndarray:
         half = self._effective_world_half_extent()
         x_lo = float(max(-half, min(x_bounds[0], x_bounds[1])))
         x_hi = float(min(half, max(x_bounds[0], x_bounds[1])))
@@ -409,15 +451,20 @@ class GazeboForestNavEnv(gym.Env):
             if np.allclose(goal_xy, 0.0):
                 continue
 
-            candidate = np.array([goal_xy[0], goal_xy[1], float(self.p.default_z_target)], dtype=np.float32)
+            candidate = np.array(
+                [goal_xy[0], goal_xy[1], float(self.p.default_z_target)], dtype=np.float32
+            )
             if np.linalg.norm(candidate[:2] - self.pos[:2]) >= self.p.min_start_goal_distance:
                 return candidate
 
-        fallback = np.array([
-            goal_side_x * band_inner,
-            goal_side_y * band_inner,
-            float(self.p.default_z_target),
-        ], dtype=np.float32)
+        fallback = np.array(
+            [
+                goal_side_x * band_inner,
+                goal_side_y * band_inner,
+                float(self.p.default_z_target),
+            ],
+            dtype=np.float32,
+        )
         return fallback.astype(np.float32)
 
     def _action_to_velocity_command(
@@ -446,13 +493,12 @@ class GazeboForestNavEnv(gym.Env):
         z_err = float(self._z_hold - float(self.pos[2]))
         cmd_vz = float(np.clip(2.0 * z_err, -self.p.vz_max, self.p.vz_max))
 
-        accel_clipped = int(
-            (cmd_v != pre_clip_v) or (cmd_wz != pre_clip_wz)
-        )
+        accel_clipped = int((cmd_v != pre_clip_v) or (cmd_wz != pre_clip_wz))
 
         return cmd_v, cmd_wz, cmd_vz, accel_clipped
 
     def reset(self, seed: Optional[int] = None, options: Optional[dict[str, Any]] = None):
+        """Reset simulation state and return the first post-reset observation."""
         super().reset(seed=seed)
         self._t = 0.0
         self._step_count = 0
@@ -477,6 +523,7 @@ class GazeboForestNavEnv(gym.Env):
         return obs, info
 
     def step(self, action: np.ndarray):
+        """Advance one control step and return Gymnasium transition values."""
         action = np.asarray(action, dtype=np.float32)
 
         # start each control step from measured state when available
@@ -517,10 +564,7 @@ class GazeboForestNavEnv(gym.Env):
             decel_max=float(self.p.decel_vz_max),
         )
         accel_clipped = int(
-            bool(accel_clipped)
-            or slew_clipped_v
-            or slew_clipped_wz
-            or slew_clipped_vz
+            bool(accel_clipped) or slew_clipped_v or slew_clipped_wz or slew_clipped_vz
         )
 
         self._publish_cmd(applied_v, applied_wz, applied_vz)
@@ -554,7 +598,9 @@ class GazeboForestNavEnv(gym.Env):
 
         reward = 0.0
         reward += self.p.reward_progress_scale * d_progress
-        reward += self.p.reward_speed_scale * (float(self.v) / self.p.v_max)  # use measured/applied velocity
+        reward += self.p.reward_speed_scale * (
+            float(self.v) / self.p.v_max
+        )  # use measured/applied velocity
         reward -= self.p.reward_step_penalty
 
         if accel_clipped:
@@ -591,9 +637,11 @@ class GazeboForestNavEnv(gym.Env):
         return obs, float(reward), terminated, truncated, info
 
     def render(self):
+        """Return a compact textual snapshot of the current simulated state."""
         return f"t={self._t:.2f} pos={self.pos} yaw={float(self.yaw):.2f} goal={self.goal} v={float(self.v):.2f}"
 
     def close(self):
+        """Stop the robot and tear down ROS resources if initialized."""
         try:
             self._publish_cmd(0.0, 0.0, 0.0)
         except Exception:

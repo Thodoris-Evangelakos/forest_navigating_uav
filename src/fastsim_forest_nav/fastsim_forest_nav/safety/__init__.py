@@ -1,3 +1,5 @@
+"""Expose safety-geometry helpers used by environment shields."""
+
 from fastsim_forest_nav.safety.geometry import (
     effective_drone_radius,
     protected_radius,

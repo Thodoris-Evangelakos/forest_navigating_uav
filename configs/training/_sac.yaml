@@ -77,6 +77,8 @@ training:
 logging:
   eval_freq_step: 50_000
   n_eval_episodes: 5
+  metrics_log_freq_step: 1_000
+  command_center_episode_window: 200
 
 sac:
   policy: MlpPolicy

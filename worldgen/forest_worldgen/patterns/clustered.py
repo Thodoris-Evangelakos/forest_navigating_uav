@@ -42,6 +42,7 @@ from .csr import sample_csr, _point_in_rect, _point_in_area, _check_min_distance
 # Child-scatter helpers
 # ---------------------------------------------------------------------------
 
+
 def _scatter_gaussian(cx, cy, radius):
     """Isotropic Gaussian scatter (σ = radius / 2) around (cx, cy)."""
     angle = random.uniform(0, 2 * math.pi)
@@ -52,19 +53,20 @@ def _scatter_gaussian(cx, cy, radius):
 def _scatter_uniform_disk(cx, cy, radius):
     """Uniform scatter inside a disk of given radius around (cx, cy)."""
     angle = random.uniform(0, 2 * math.pi)
-    r = radius * math.sqrt(random.random())      # sqrt for uniform area
+    r = radius * math.sqrt(random.random())  # sqrt for uniform area
     return cx + r * math.cos(angle), cy + r * math.sin(angle)
 
 
 _SCATTER_FNS = {
-    'gaussian': _scatter_gaussian,
-    'uniform_disk': _scatter_uniform_disk,
+    "gaussian": _scatter_gaussian,
+    "uniform_disk": _scatter_uniform_disk,
 }
 
 
 # ---------------------------------------------------------------------------
 # Parent placement
 # ---------------------------------------------------------------------------
+
 
 def _place_parents(count, region, K, min_parent_dist, max_attempts=200):
     """Place *count* parent centres with optional minimum separation."""
@@ -94,16 +96,21 @@ def _place_parents(count, region, K, min_parent_dist, max_attempts=200):
 # Per-cluster child counts  (Poisson, clamped to budget)
 # ---------------------------------------------------------------------------
 
+
 def _poisson_child_counts(n_clusters, total_children, mean_per_cluster):
     """
-    Draw Poisson-distributed counts for each cluster, then rescale so
+    Draw Poisson-distributed counts for each cluster.
+
+    Rescale counts so
     they sum to *total_children*.
     """
     if n_clusters <= 0:
         return []
 
-    raw = [max(0, int(random.gauss(mean_per_cluster, math.sqrt(mean_per_cluster))))
-           for _ in range(n_clusters)]
+    raw = [
+        max(0, int(random.gauss(mean_per_cluster, math.sqrt(mean_per_cluster))))
+        for _ in range(n_clusters)
+    ]
 
     raw_sum = sum(raw)
     if raw_sum == 0:
@@ -137,11 +144,12 @@ def _poisson_child_counts(n_clusters, total_children, mean_per_cluster):
 # Clamp helpers
 # ---------------------------------------------------------------------------
 
+
 def _clamp_to_bounds(x, y, region, K):
     """Clamp (x, y) inside the placement bounds."""
     if region is not None:
-        x = max(region['x_min'], min(region['x_max'], x))
-        y = max(region['y_min'], min(region['y_max'], y))
+        x = max(region["x_min"], min(region["x_max"], x))
+        y = max(region["y_min"], min(region["y_max"], y))
     else:
         x = max(-K / 2, min(K / 2, x))
         y = max(-K / 2, min(K / 2, y))
@@ -151,6 +159,7 @@ def _clamp_to_bounds(x, y, region, K):
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
+
 
 def sample_clustered(count, region, K, min_distance, existing_positions, params):
     """
@@ -177,40 +186,36 @@ def sample_clustered(count, region, K, min_distance, existing_positions, params)
     """
     params = params or {}
 
-    cluster_count = max(1, int(params.get('cluster_count', 5)))
-    cluster_radius = float(params.get('cluster_radius', 3.0))
-    scatter_shape = params.get('scatter_shape', 'gaussian')
-    bg_fraction = float(params.get('background_fraction', 0.15))
-    allow_overlap = bool(params.get('allow_cluster_overlap', False))
+    cluster_count = max(1, int(params.get("cluster_count", 5)))
+    cluster_radius = float(params.get("cluster_radius", 3.0))
+    scatter_shape = params.get("scatter_shape", "gaussian")
+    bg_fraction = float(params.get("background_fraction", 0.15))
+    allow_overlap = bool(params.get("allow_cluster_overlap", False))
 
     # parent separation
     if allow_overlap:
         min_parent_dist = 0.0
     else:
-        min_parent_dist = float(params.get('min_parent_distance',
-                                            cluster_radius * 0.5))
+        min_parent_dist = float(params.get("min_parent_distance", cluster_radius * 0.5))
 
     # child budget
     n_background = max(1, int(count * bg_fraction))
     n_clustered = count - n_background
 
-    mean_per_cluster = float(params.get('mean_per_cluster',
-                                         n_clustered / max(cluster_count, 1)))
+    mean_per_cluster = float(params.get("mean_per_cluster", n_clustered / max(cluster_count, 1)))
 
     # resolve scatter function
     scatter_fn = _SCATTER_FNS.get(scatter_shape)
     if scatter_fn is None:
         raise ValueError(
-            f"Unknown scatter_shape '{scatter_shape}'; "
-            f"choose from {list(_SCATTER_FNS.keys())}"
+            f"Unknown scatter_shape '{scatter_shape}'; choose from {list(_SCATTER_FNS.keys())}"
         )
 
     # --- 1. place parent centres ---
     parents = _place_parents(cluster_count, region, K, min_parent_dist)
 
     # --- 2. draw per-cluster child counts ---
-    child_counts = _poisson_child_counts(cluster_count, n_clustered,
-                                          mean_per_cluster)
+    child_counts = _poisson_child_counts(cluster_count, n_clustered, mean_per_cluster)
 
     # --- 3. scatter children (grid-accelerated proximity checks) ---
     grid = ProximityGrid(min_distance, existing_positions) if min_distance > 0 else None
@@ -239,14 +244,16 @@ def sample_clustered(count, region, K, min_distance, existing_positions, params)
                 relaxed += 1
 
     if relaxed:
-        print(f"Warning [clustered]: relaxed min_distance for "
-              f"{relaxed}/{n_clustered} clustered points")
+        print(
+            f"Warning [clustered]: relaxed min_distance for "
+            f"{relaxed}/{n_clustered} clustered points"
+        )
 
     # --- 4. background fill ---
     all_so_far = existing_positions + positions
-    bg = sample_csr(n_background, region, K, min_distance,
-                    all_so_far,
-                    {'use_world_min_distance': True})
+    bg = sample_csr(
+        n_background, region, K, min_distance, all_so_far, {"use_world_min_distance": True}
+    )
     positions.extend(bg)
 
     return positions
