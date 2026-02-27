@@ -1,4 +1,4 @@
-.PHONY: setup venv-rebuild ensure-venv verify check lint test package worldgen worldgen-run gazebo-world gazebo-spawn-uav gazebo-agent gazebo-stop rl-train rl-resume rl-eval rl-tensorboard rl-compare rl-trajectories clean-generated clean deep-clean help
+.PHONY: setup venv-rebuild ensure-venv verify worldgen gazebo-world gazebo-spawn-uav gazebo-agent gazebo-stop rl-train rl-resume rl-eval rl-tensorboard rl-trajectories clean help
 
 PYTHON := ./.venv/bin/python
 PIP := ./.venv/bin/pip
@@ -26,12 +26,7 @@ help:
 	@echo "  setup       - Create/recreate venv and install all packages (editable + deps)"
 	@echo "  venv-rebuild - Recreate only .venv and reinstall packages"
 	@echo "  verify      - Test imports and environment setup"
-	@echo "  check       - Run lint + tests + import verification"
-	@echo "  lint        - Run Ruff checks on source packages"
-	@echo "  test        - Run pytest when tests exist"
-	@echo "  package     - Build wheel artifacts for subpackages into dist/"
 	@echo "  worldgen    - Generate a forest world with seed 42"
-	@echo "  worldgen-run - Generate world and launch Gazebo"
 	@echo "  gazebo-world - Generate world and launch Gazebo (WORLD_CONFIG=... WORLD_SEED=...)"
 	@echo "  gazebo-spawn-uav - Spawn UAV into running Gazebo using latest world (SPAWN_INDEX=... SPAWN_MARGIN=... SPAWN_HEIGHT=...)"
 	@echo "  gazebo-agent - Start ROS-Gazebo bridge and run policy control (MODEL=... NUM_EPISODES=...)"
@@ -41,11 +36,8 @@ help:
 	@echo "  rl-eval     - Evaluate trained policy (requires MODEL=..., override DEVICE=...)"
 	@echo "  rl-tensorboard - Launch TensorBoard (override TB_LOGDIR=... TB_HOST=... TB_PORT=...)"
 	@echo "  rl-train auto-generates report/ on run end (including graceful Ctrl+C)"
-	@echo "  rl-compare  - Build multi-run comparison report"
 	@echo "  rl-trajectories - Visualize trajectories (MODEL=..., TRAJ_CONFIG=... optional, DEVICE=...)"
-	@echo "  clean-generated - Remove caches, egg-info, and generated worldgen outputs"
-	@echo "  clean       - Alias to clean-generated"
-	@echo "  deep-clean  - Clean generated artifacts plus .venv and dist/"
+	@echo "  clean       - Remove caches, egg-info, and generated worldgen outputs"
 	@echo "  help        - Show this help message"
 
 setup:
@@ -89,27 +81,8 @@ verify: ensure-venv
 	$(PYTHON) -c "import yaml; print('✓ PyYAML available')"
 	@echo "✓ All imports verified"
 
-lint: ensure-venv
-	$(PYTHON) -m ruff check src worldgen
-
-test: ensure-venv
-	@if find src worldgen -type f -name 'test_*.py' | grep -q .; then \
-		$(PYTHON) -m pytest -q; \
-	else \
-		echo "No tests discovered; skipping pytest"; \
-	fi
-
-check: lint test verify
-
-package: ensure-venv
-	rm -rf dist
-	$(PYTHON) -m pip wheel --no-deps --wheel-dir dist ./worldgen ./src/fastsim_forest_nav ./src/forest_nav_rl
-
 worldgen:
 	./scripts/worldgen/generate_world.sh configs/worldgen/worldgen_run.yaml --seed 42
-
-worldgen-run:
-	./scripts/worldgen/generate_world_and_run.sh configs/worldgen/worldgen_run.yaml --seed 42
 
 gazebo-world:
 	./scripts/worldgen/generate_world_and_run.sh $(WORLD_CONFIG) --seed $(WORLD_SEED)
@@ -189,9 +162,6 @@ rl-tensorboard: ensure-venv
 	@echo "Open: http://$(TB_HOST):$(TB_PORT)"
 	$(PYTHON) -m tensorboard.main --logdir $(TB_LOGDIR) --host $(TB_HOST) --port $(TB_PORT)
 
-rl-compare: ensure-venv
-	$(PYTHON) -m forest_nav_rl.visualize_training --compare
-
 rl-trajectories: ensure-venv
 	@if [ -z "$(MODEL)" ]; then \
 		echo "Error: MODEL is required. Usage: make rl-trajectories MODEL=path/to/model.zip"; \
@@ -217,16 +187,10 @@ rl-trajectories: ensure-venv
 		$(PYTHON) -m forest_nav_rl.visualize_trajectories --model "$(MODEL)" --num-episodes $(NUM_EPISODES) --device $(DEVICE); \
 	fi
 
-clean-generated:
+clean:
 	find . -type d -name __pycache__ -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .pytest_cache -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name .ruff_cache -exec rm -rf {} + 2>/dev/null || true
 	find . -type d -name *.egg-info -exec rm -rf {} + 2>/dev/null || true
 	rm -rf worldgen/outputs
 	@echo "✓ Cleaned generated artifacts"
-
-clean: clean-generated
-
-deep-clean: clean-generated
-	rm -rf .venv dist
-	@echo "✓ Deep cleaned"

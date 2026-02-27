@@ -10,30 +10,38 @@ env:
   env_kwargs:
     params:
       dt: 0.1
-      lidar_num_beams: 180
+      lidar_num_beams: 90
       lidar_range_max: 30.0
       lidar_min_valid_range: 0.03
       v_max: 6.0
       wz_max: 2.5
       vz_max: 2.0
-      r_safe: 0.22
+      r_safe: 0.24
       collision_threshold: 0.18
-      episode_seconds: 30.0
-      goal_tolerance: 0.5
+      episode_seconds: 600.0
+      goal_tolerance: 2.0
       world_radius: 20.0
+      boundary_margin: 1.5
+      drone_radius: 0.18
       default_z_target: 0.3
       z_error_scale: 5.0
-      reward_progress_scale: 2.0
-      reward_speed_scale: 0.05
-      reward_step_penalty: 0.01
-      reward_proximity_scale: 0.2
-      reward_shield_penalty: 0.02
-      reward_collision_penalty: 5.0
-      reward_success_bonus: 5.0
-      reward_truncation_penalty: 0.0
-      shield_floor_z_min: 0.1
-      shield_ceiling_z_max: 0.5
+      reward_progress_scale: 5.0
+      reward_speed_scale: 0.015
+      reward_step_penalty: 0.02
+      reward_proximity_scale: 0.45
+      reward_shield_penalty: 0.035
+      reward_collision_penalty: 28.0
+      reward_success_bonus: 22.0
+      reward_truncation_penalty: 8.0
+      reward_yaw_rate_scale: 0.04
+      reward_stall_penalty: 0.05
+      reward_accel_clip_penalty: 0.08
+      progress_stall_threshold: 0.02
+      yaw_penalty_speed_gate: 0.25
+      shield_floor_z_min: 0.3
+      shield_ceiling_z_max: 0.3
       shield_lookahead_margin: 3.0
+      shield_yaw_damping: 0.4
       shield_front_arc_deg: 70.0
       shield_ttc_threshold_sec: 1.0
       tree_radius_mean: 0.14
@@ -42,21 +50,29 @@ env:
       tree_radius_max: 0.30
       worldgen_config_relpath: configs/worldgen/worldgen_run.yaml
       worldgen_seed_offset: 0
-      odom_topic: /odom
+      worldgen_resample_every_n_episodes: 1
+      worldgen_verbose: false
+      odom_topic: /model/uav1/odometry
       scan_topic: /scan
       cmd_vel_topic: /model/uav1/cmd_vel
       spin_timeout_sec: 2.0
       settle_time_sec: 0.05
+      attitude_lock_enabled: true
+      attitude_lock_kp: 8.0
+      attitude_lock_max_rate: 20.0
       use_sim_reset_service: false
       reset_service_name: /reset_simulation
       fixed_goal: [8.0, 0.0, 0.3]
       randomize_goal_on_reset: true
+      start_goal_clearance: 0.6
+      min_start_goal_distance: 8.0
+      spawn_max_attempts: 500
 
       action_mode: hybrid
-      accel_v_max: 3.0
-      accel_wz_max: 2.0
-      accel_vz_max: 1.5
-      decel_v_max: 6.0
-      decel_wz_max: 3.0
-      decel_vz_max: 2.5
+      accel_v_max: 4.5
+      accel_wz_max: 3.2
+      accel_vz_max: 1.8
+      decel_v_max: 10.5
+      decel_wz_max: 5.0
+      decel_vz_max: 3.5
 

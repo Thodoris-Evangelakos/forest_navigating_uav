@@ -126,12 +126,6 @@ Launch TensorBoard:
 make rl-tensorboard TB_PORT=6006
 ```
 
-Generate multi-run comparison report:
-
-```bash
-make rl-compare
-```
-
 Generate trajectory plots:
 
 ```bash
@@ -152,10 +146,7 @@ Each run under `outputs/runs/<run_name>/` typically contains:
 ## Useful Make Targets
 
 ```bash
-make check        # lint + tests (if discovered) + verify
-make package      # build wheels in dist/
 make clean        # remove generated caches/artifacts
-make deep-clean   # clean + remove .venv and dist/
 ```
 
 ## Troubleshooting
@@ -164,7 +155,12 @@ make deep-clean   # clean + remove .venv and dist/
   - Run `make venv-rebuild`
 - `MODEL is required` errors:
   - Pass `MODEL=outputs/runs/.../best/best_model.zip`
-- Gazebo topics not flowing (`/odom`, `/scan`):
+- Gazebo topics not flowing (`/model/uav1/odometry`, `/scan`):
   - Ensure Gazebo world is running and UAV is spawned before `make gazebo-agent`
+- Gazebo eval debugging data:
+  - Each `make gazebo-agent ...` run stores telemetry under `outputs/debug/gazebo_evals/<timestamp>/`
+  - UAV state stream: `uav_odom.yaml` (position, orientation, linear/angular velocity)
+  - Command stream: `uav_cmd_vel.yaml`
+  - Run metadata and paths: `run_meta.txt`
 - CPU-only machine:
   - Set `DEVICE=cpu` for `rl-train`, `rl-eval`, and `rl-trajectories`

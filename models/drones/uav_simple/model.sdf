@@ -9,27 +9,38 @@
       <inertial>
         <mass>1.0</mass>
         <inertia>
-          <ixx>0.02</ixx> <ixy>0.0</ixy> <ixz>0.0</ixz>
-          <iyy>0.02</iyy> <iyz>0.0</iyz>
-          <izz>0.02</izz>
+          <ixx>2.0</ixx> <ixy>0.0</ixy> <ixz>0.0</ixz>
+          <iyy>2.0</iyy> <iyz>0.0</iyz>
+          <izz>0.2</izz>
         </inertia>
       </inertial>
 
+      <velocity_decay>
+        <linear>0.1</linear>
+        <angular>40.0</angular>
+      </velocity_decay>
+
       <collision name="collision">
         <geometry>
-          <box><size>0.32 0.32 0.12</size></box>
+          <cylinder>
+            <radius>0.18</radius>
+            <length>0.12</length>
+          </cylinder>
         </geometry>
       </collision>
 
       <visual name="visual">
         <geometry>
-          <box><size>0.32 0.32 0.12</size></box>
+          <cylinder>
+            <radius>0.18</radius>
+            <length>0.12</length>
+          </cylinder>
         </geometry>
       </visual>
     </link>
 
     <link name="lidar_link">
-      <pose>0 0 0.10 0 0 0</pose>
+      <pose>0 0 0.07 0 0 0</pose>
 
       <inertial>
         <mass>0.05</mass>
@@ -72,10 +83,10 @@
         <ray>
           <scan>
             <horizontal>
-              <samples>1024</samples>
+              <samples>90</samples>
               <resolution>1</resolution>
               <min_angle>-3.14159</min_angle>
-              <max_angle>3.14159</max_angle>
+              <max_angle>3.07178</max_angle>
             </horizontal>
           </scan>
           <range>
@@ -101,7 +112,8 @@
 
     <plugin filename="gz-sim-odometry-publisher-system" name="gz::sim::v8::systems::OdometryPublisher">
       <odom_publish_frequency>50</odom_publish_frequency>
-      <odom_topic>/odom</odom_topic>
+      <dimensions>3</dimensions>
+      <odom_topic>/model/uav1/odometry</odom_topic>
       <tf_topic>/tf</tf_topic>
     </plugin>
 

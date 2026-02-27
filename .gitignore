@@ -4,6 +4,7 @@ notes.txt
 PARTLIST.md
 .venv/
 outputs/runs/*
+outputs/debug/gazebo_evals/
 
 # python artifacts
 *.py[cod]

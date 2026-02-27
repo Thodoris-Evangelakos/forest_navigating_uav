@@ -1,5 +1,6 @@
 #!/bin/bash
 set -e
+set -o pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PROJECT_ROOT="$(cd "$SCRIPT_DIR/.." && pwd)"
@@ -8,6 +9,7 @@ MODEL=${1:-}
 NUM_EPISODES=${2:-5}
 TOPIC_WAIT_SEC=${TOPIC_WAIT_SEC:-120}
 KILL_STALE_BRIDGE=${KILL_STALE_BRIDGE:-1}
+GAZEBO_DEBUG_ROOT=${GAZEBO_DEBUG_ROOT:-outputs/debug/gazebo_evals}
 
 cd "$PROJECT_ROOT"
 
@@ -27,25 +29,52 @@ if [ ! -x "$PYTHON" ]; then
 fi
 
 BRIDGE_PID=""
-DEMO_CONFIG_TMP=""
+ODOM_REC_PID=""
+CMD_REC_PID=""
+RESOLVED_CONFIG_TMP=""
+GOAL_MARKER_SDF=""
+GOAL_MARKER_LOG=""
+RUN_STAMP="$(date +%Y%m%d_%H%M%S)"
+DEBUG_RUN_DIR="$GAZEBO_DEBUG_ROOT/$RUN_STAMP"
+BRIDGE_LOG="$DEBUG_RUN_DIR/bridge.log"
+AGENT_LOG="$DEBUG_RUN_DIR/agent.log"
+RUN_META="$DEBUG_RUN_DIR/run_meta.txt"
+ODOM_LOG="$DEBUG_RUN_DIR/uav_odom.yaml"
+CMD_LOG="$DEBUG_RUN_DIR/uav_cmd_vel.yaml"
+ODOM_TOPIC=${ODOM_TOPIC:-/model/uav1/odometry}
+CMD_TOPIC=${CMD_TOPIC:-/model/uav1/cmd_vel}
+
+mkdir -p "$DEBUG_RUN_DIR"
 
 cleanup() {
   echo ""
-  echo "🛑 Cleaning up agent bridge..."
+  echo "~~~Cleaning up agent bridge...~~~"
+  [ -n "$ODOM_REC_PID" ] && kill $ODOM_REC_PID 2>/dev/null || true
+  [ -n "$CMD_REC_PID" ] && kill $CMD_REC_PID 2>/dev/null || true
+  sleep 1
+  [ -n "$ODOM_REC_PID" ] && kill -9 $ODOM_REC_PID 2>/dev/null || true
+  [ -n "$CMD_REC_PID" ] && kill -9 $CMD_REC_PID 2>/dev/null || true
+  wait $ODOM_REC_PID 2>/dev/null || true
+  wait $CMD_REC_PID 2>/dev/null || true
   [ -n "$BRIDGE_PID" ] && kill $BRIDGE_PID 2>/dev/null || true
   sleep 1
   [ -n "$BRIDGE_PID" ] && kill -9 $BRIDGE_PID 2>/dev/null || true
   wait $BRIDGE_PID 2>/dev/null || true
-  [ -n "$DEMO_CONFIG_TMP" ] && rm -f "$DEMO_CONFIG_TMP" 2>/dev/null || true
+  [ -n "$RESOLVED_CONFIG_TMP" ] && rm -f "$RESOLVED_CONFIG_TMP" 2>/dev/null || true
+  [ -n "$GOAL_MARKER_SDF" ] && rm -f "$GOAL_MARKER_SDF" 2>/dev/null || true
   echo "✓ Agent bridge cleanup done"
 }
 trap cleanup EXIT
 
-echo "🚀 Starting Gazebo agent control..."
+echo "...Starting Gazebo agent control..."
 echo "  Episodes: $NUM_EPISODES"
 if [ -n "$MODEL" ]; then
   echo "  Model: $MODEL"
 fi
+echo "  Debug logs: $DEBUG_RUN_DIR"
+echo "  Attitude lock (roll/pitch=0) command examples:"
+echo "    ROS2: ros2 topic pub --once /model/uav1/cmd_vel geometry_msgs/msg/Twist \"{linear: {x: 0.0, y: 0.0, z: 0.0}, angular: {x: 0.0, y: 0.0, z: 0.0}}\""
+echo "    Gazebo: gz topic -t /model/uav1/cmd_vel -m gz.msgs.Twist -p 'linear: {x: 0.0, y: 0.0, z: 0.0} angular: {x: 0.0, y: 0.0, z: 0.0}'"
 
 if [ "$KILL_STALE_BRIDGE" = "1" ]; then
   echo "  Preflight: stopping stale ROS-Gazebo bridge processes..."
@@ -64,20 +93,36 @@ if [ -z "$ROS_DISTRO" ]; then
 fi
 
 if ! command -v ros2 &> /dev/null; then
-  echo "❌ ROS2 not found. Source ROS2 first."
+  echo "ROS2 not found. Source ROS2 first."
   exit 1
 fi
 
+{
+  echo "timestamp=$RUN_STAMP"
+  echo "cwd=$(pwd -P)"
+  echo "model_arg=$MODEL"
+  echo "num_episodes=$NUM_EPISODES"
+  echo "topic_wait_sec=$TOPIC_WAIT_SEC"
+  echo "kill_stale_bridge=$KILL_STALE_BRIDGE"
+  echo "ros_distro=${ROS_DISTRO:-unset}"
+  echo "odom_topic=$ODOM_TOPIC"
+  echo "cmd_topic=$CMD_TOPIC"
+  echo "bridge_log=$BRIDGE_LOG"
+  echo "agent_log=$AGENT_LOG"
+  echo "odom_log=$ODOM_LOG"
+  echo "cmd_log=$CMD_LOG"
+} > "$RUN_META"
+
 echo "Starting ROS2-Gazebo bridge..."
 ros2 run ros_gz_bridge parameter_bridge \
-  /odom@nav_msgs/msg/Odometry[gz.msgs.Odometry \
+  ${ODOM_TOPIC}@nav_msgs/msg/Odometry[gz.msgs.Odometry \
   /scan@sensor_msgs/msg/LaserScan[gz.msgs.LaserScan \
   /model/uav1/cmd_vel@geometry_msgs/msg/Twist]gz.msgs.Twist \
-  > /tmp/bridge.log 2>&1 &
+  > "$BRIDGE_LOG" 2>&1 &
 BRIDGE_PID=$!
-echo "Bridge started (PID: $BRIDGE_PID) - logging to /tmp/bridge.log"
+echo "Bridge started (PID: $BRIDGE_PID) - logging to $BRIDGE_LOG"
 
-echo "⏳ Waiting for data on ROS2 topics (/odom, /scan)..."
+echo "...Waiting for data on ROS2 topics (${ODOM_TOPIC}, /scan)..."
 MAX_WAIT=$TOPIC_WAIT_SEC
 ELAPSED=0
 DATA_READY=0
@@ -86,7 +131,7 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
   sleep 2
   ELAPSED=$((ELAPSED + 2))
 
-  timeout 2 ros2 topic echo /odom --once >/dev/null 2>&1 &
+  timeout 2 ros2 topic echo "$ODOM_TOPIC" --once >/dev/null 2>&1 &
   ODOM_WAIT=$!
   timeout 2 ros2 topic echo /scan --once >/dev/null 2>&1 &
   SCAN_WAIT=$!
@@ -114,17 +159,42 @@ while [ $ELAPSED -lt $MAX_WAIT ]; do
 done
 
 if [ $DATA_READY -eq 0 ]; then
-  echo "❌ Topic data not confirmed within ${MAX_WAIT}s."
-  echo "   Ensure Gazebo is running, world is unpaused, and UAV is spawned."
+  echo "Topic data not confirmed within ${MAX_WAIT}s."
+  echo "Ensure Gazebo is running, world is unpaused, and UAV is spawned."
   exit 1
 fi
 
+echo "!!!Capturing UAV telemetry...!!!"
+if command -v stdbuf >/dev/null 2>&1; then
+  stdbuf -oL -eL ros2 topic echo "$ODOM_TOPIC" > "$ODOM_LOG" 2>&1 &
+else
+  ros2 topic echo "$ODOM_TOPIC" > "$ODOM_LOG" 2>&1 &
+fi
+ODOM_REC_PID=$!
+
+if command -v stdbuf >/dev/null 2>&1; then
+  stdbuf -oL -eL ros2 topic echo "$CMD_TOPIC" > "$CMD_LOG" 2>&1 &
+else
+  ros2 topic echo "$CMD_TOPIC" > "$CMD_LOG" 2>&1 &
+fi
+CMD_REC_PID=$!
+
+sleep 1
+
+{
+  echo "odom_rec_pid=$ODOM_REC_PID"
+  echo "cmd_rec_pid=$CMD_REC_PID"
+} >> "$RUN_META"
+
+echo "  Odom stream: $ODOM_TOPIC -> $ODOM_LOG"
+echo "  Command stream: $CMD_TOPIC -> $CMD_LOG"
+
 echo ""
-echo "🎬 Running Gazebo policy control..."
+echo "<--Running Gazebo policy control...-->"
 if [ -z "$MODEL" ]; then
   LATEST=$(find outputs/runs \( -name "sac_final_model.zip" -o -name "best_model.zip" \) -type f | sort | tail -1)
   if [ -z "$LATEST" ]; then
-    echo "❌ No trained model found. Run 'make rl-train' first."
+    echo "No trained model found. Run 'make rl-train' first."
     exit 1
   fi
   MODEL=$LATEST
@@ -132,112 +202,103 @@ if [ -z "$MODEL" ]; then
 fi
 
 DEMO_CONFIG="configs/training/sac_gazebo.yaml"
-DEMO_CONFIG_TMP="/tmp/sac_gazebo_agent_${$}.yaml"
 LATEST_META="$PROJECT_ROOT/worldgen/outputs/latest/meta.json"
+RESOLVED_CONFIG_TMP="/tmp/sac_gazebo_resolved_${$}.yaml"
 
-if [ -f "$MODEL" ]; then
-  ADAPTED_CONFIG=$($PYTHON - "$MODEL" "$DEMO_CONFIG" "$DEMO_CONFIG_TMP" "$LATEST_META" <<'PY'
-import pickle
-import sys
-from pathlib import Path
+echo "Using Gazebo config as-is: $DEMO_CONFIG"
 
-import yaml
-import json
-
-
-def read_lidar_beams_from_config(path: Path):
-    try:
-        data = yaml.safe_load(path.read_text(encoding="utf-8")) or {}
-        return int(data.get("env", {}).get("env_kwargs", {}).get("params", {}).get("lidar_num_beams"))
-    except Exception:
-        return None
-
-
-def read_lidar_beams_from_vecnormalize(model_path: Path):
-    candidates = [
-        model_path.parent / "vecnormalize.pkl",
-        model_path.parent.parent / "vecnormalize.pkl",
-        model_path.parent.parent / "final" / "vecnormalize.pkl",
-    ]
-    for candidate in candidates:
-        if not candidate.exists():
-            continue
-        try:
-            with candidate.open("rb") as handle:
-                vecnorm = pickle.load(handle)
-            obs_space = getattr(vecnorm, "observation_space", None)
-            shape = getattr(obs_space, "shape", None)
-            if shape and len(shape) == 1 and int(shape[0]) >= 7:
-                return int(shape[0]) - 6
-        except Exception:
-            continue
-    return None
-
-
-model = Path(sys.argv[1]).resolve()
-base_cfg = Path(sys.argv[2]).resolve()
-out_cfg = Path(sys.argv[3]).resolve()
-meta_path = Path(sys.argv[4]).resolve()
-
-run_cfg_candidates = [
-    model.parent.parent / "config_used.yaml",
-    model.parent / "config_used.yaml",
-]
-
-lidar_beams = None
-for candidate in run_cfg_candidates:
-    if candidate.exists():
-        lidar_beams = read_lidar_beams_from_config(candidate)
-        if lidar_beams is not None:
-            break
-
-if lidar_beams is None:
-    lidar_beams = read_lidar_beams_from_vecnormalize(model)
-
-cfg = yaml.safe_load(base_cfg.read_text(encoding="utf-8")) or {}
-params = cfg.setdefault("env", {}).setdefault("env_kwargs", {}).setdefault("params", {})
-if lidar_beams is not None:
-    params["lidar_num_beams"] = int(lidar_beams)
-
-if meta_path.exists():
-    try:
-        meta = json.loads(meta_path.read_text(encoding="utf-8"))
-        world = meta.get("world", {})
-        area_size = world.get("area_size")
-        if area_size is not None:
-            params["world_radius"] = float(area_size) / 2.0
-
-        start_goal = meta.get("start_goal", {})
-        goal_xy = start_goal.get("goal_xy") if isinstance(start_goal, dict) else None
-        if isinstance(goal_xy, list) and len(goal_xy) >= 2:
-            z = float(params.get("default_z_target", 2.0))
-            params["fixed_goal"] = [float(goal_xy[0]), float(goal_xy[1]), z]
-            params["randomize_goal_on_reset"] = False
-    except Exception:
-        pass
-
-out_cfg.write_text(yaml.safe_dump(cfg, sort_keys=False), encoding="utf-8")
-print(str(out_cfg))
-PY
+RESOLVED_CONFIG=$(
+  $PYTHON "$PROJECT_ROOT/scripts/rl/resolve_gazebo_goal_config.py" \
+    --config "$DEMO_CONFIG" \
+    --meta "$LATEST_META" \
+    --out "$RESOLVED_CONFIG_TMP"
 )
 
-  if [ -n "$ADAPTED_CONFIG" ] && [ -f "$ADAPTED_CONFIG" ]; then
-    DEMO_CONFIG="$ADAPTED_CONFIG"
-    echo "Using adapted Gazebo config: $DEMO_CONFIG"
+if [ -n "$RESOLVED_CONFIG" ] && [ -f "$RESOLVED_CONFIG" ]; then
+  DEMO_CONFIG="$RESOLVED_CONFIG"
+  echo "Using resolved Gazebo config: $DEMO_CONFIG"
+fi
+
+cp "$DEMO_CONFIG" "$DEBUG_RUN_DIR/gazebo_effective_config.yaml" 2>/dev/null || true
+
+GOAL_MARKER_SDF="$DEBUG_RUN_DIR/goal_marker.sdf"
+GOAL_MARKER_LOG="$DEBUG_RUN_DIR/goal_marker.log"
+
+GOAL_MARKER_INFO=$(
+  $PYTHON "$PROJECT_ROOT/scripts/rl/get_goal_marker_info.py" \
+  --config "$DEMO_CONFIG" \
+  --world-sdf "$PROJECT_ROOT/worldgen/outputs/latest/world.sdf"
+)
+
+if [ -n "$GOAL_MARKER_INFO" ]; then
+  read -r GOAL_X GOAL_Y GOAL_Z GOAL_WORLD <<< "$GOAL_MARKER_INFO"
+
+  cat > "$GOAL_MARKER_SDF" <<'EOF'
+<?xml version="1.0" ?>
+<sdf version="1.9">
+  <model name="goal_marker_model">
+    <static>true</static>
+    <link name="goal_marker_link">
+      <collision name="goal_marker_collision">
+        <geometry>
+          <sphere>
+            <radius>1.0</radius>
+          </sphere>
+        </geometry>
+      </collision>
+      <visual name="goal_marker_visual">
+        <geometry>
+          <sphere>
+            <radius>1.0</radius>
+          </sphere>
+        </geometry>
+        <material>
+          <ambient>1 0 0 0.7</ambient>
+          <diffuse>1 0 0 0.7</diffuse>
+          <specular>0.2 0.2 0.2 0.7</specular>
+        </material>
+      </visual>
+    </link>
+  </model>
+</sdf>
+EOF
+
+  if command -v ros2 >/dev/null 2>&1; then
+    ros2 run ros_gz_sim create \
+      -world "$GOAL_WORLD" \
+      -name "goal_marker_${RUN_STAMP}" \
+      -file "$GOAL_MARKER_SDF" \
+      -x "$GOAL_X" -y "$GOAL_Y" -z "$GOAL_Z" \
+      > "$GOAL_MARKER_LOG" 2>&1 || true
   fi
 fi
 
+{
+  echo "effective_config=$DEMO_CONFIG"
+  echo "bridge_pid=$BRIDGE_PID"
+  echo "goal_marker_log=$GOAL_MARKER_LOG"
+} >> "$RUN_META"
+
+set +e
 $PYTHON -m forest_nav_rl.visualize_trajectories \
   --model "$MODEL" \
   --config "$DEMO_CONFIG" \
   --num-episodes "$NUM_EPISODES" \
-  --deterministic
+  --deterministic 2>&1 | tee "$AGENT_LOG"
+AGENT_EXIT=${PIPESTATUS[0]}
+set -e
 
-AGENT_EXIT=$?
 if [ $AGENT_EXIT -eq 0 ]; then
-  echo "✓ Gazebo agent run complete"
+  echo "Gazebo agent run complete"
 else
-  echo "❌ Gazebo agent failed with exit code $AGENT_EXIT"
+  echo "Gazebo agent failed with exit code $AGENT_EXIT"
 fi
+
+{
+  echo "agent_exit=$AGENT_EXIT"
+  echo "finished_at=$(date +%Y%m%d_%H%M%S)"
+} >> "$RUN_META"
+
+echo "Debug artifacts saved under: $DEBUG_RUN_DIR"
 
 exit $AGENT_EXIT

@@ -35,7 +35,7 @@ class GazeboParams(SimParams):
     documentation; they should always be explicitly set via that config.
     """
 
-    odom_topic: str = "/odom"
+    odom_topic: str = "/model/uav1/odometry"
     scan_topic: str = "/scan"
     cmd_vel_topic: str = "/model/uav1/cmd_vel"
     use_sim_reset_service: bool = False
@@ -47,6 +47,9 @@ class GazeboParams(SimParams):
     lidar_min_valid_range: float = 0.03
     shield_front_arc_deg: float = 55.0
     shield_ttc_threshold_sec: float = 0.75
+    attitude_lock_enabled: bool = True
+    attitude_lock_kp: float = 8.0
+    attitude_lock_max_rate: float = 20.0
 
 
 class GazeboForestNavEnv(gym.Env):
@@ -73,6 +76,8 @@ class GazeboForestNavEnv(gym.Env):
 
         self.pos = np.zeros(3, dtype=np.float32)
         self.yaw = np.float32(0.0)
+        self.roll = np.float32(0.0)
+        self.pitch = np.float32(0.0)
         self.v = np.float32(0.0)
         self.wz = np.float32(0.0)
         self.vz = np.float32(0.0)
@@ -81,7 +86,7 @@ class GazeboForestNavEnv(gym.Env):
         if self.goal.shape != (3,):
             raise ValueError("GazeboParams.fixed_goal must be [x, y, z]")
 
-        self._z_hold = np.float32(0.3)
+        self._z_hold = np.float32(self.p.default_z_target)
         self.z_target = self._z_hold
         self.trees = None
         self._prev_dist: Optional[float] = None
@@ -175,14 +180,30 @@ class GazeboForestNavEnv(gym.Env):
                 self.pos[2] = np.float32(msg.pose.pose.position.z)
 
                 q = msg.pose.pose.orientation
+                sinr_cosp = 2.0 * (q.w * q.x + q.y * q.z)
+                cosr_cosp = 1.0 - 2.0 * (q.x * q.x + q.y * q.y)
+                self.roll = np.float32(math.atan2(sinr_cosp, cosr_cosp))
+
+                sinp = 2.0 * (q.w * q.y - q.z * q.x)
+                if abs(sinp) >= 1.0:
+                    self.pitch = np.float32(math.copysign(math.pi / 2.0, sinp))
+                else:
+                    self.pitch = np.float32(math.asin(sinp))
+
                 self.yaw = np.float32(
                     math.atan2(2.0 * (q.w * q.z + q.x * q.y), 1.0 - 2.0 * (q.y * q.y + q.z * q.z))
                 )
 
                 # capture twist for hybrid dynamics feedback
-                self._odom_v = np.float32(msg.twist.twist.linear.x)
-                self._odom_wz = np.float32(msg.twist.twist.angular.z)
-                self._odom_vz = np.float32(msg.twist.twist.linear.z)
+                self._odom_v = np.float32(
+                    np.clip(float(msg.twist.twist.linear.x), -float(self.p.v_max), float(self.p.v_max))
+                )
+                self._odom_wz = np.float32(
+                    np.clip(float(msg.twist.twist.angular.z), -float(self.p.wz_max), float(self.p.wz_max))
+                )
+                self._odom_vz = np.float32(
+                    np.clip(float(msg.twist.twist.linear.z), -float(self.p.vz_max), float(self.p.vz_max))
+                )
                 self._have_odom_twist = True
 
                 self._have_odom = True
@@ -277,23 +298,26 @@ class GazeboForestNavEnv(gym.Env):
 
         raise TimeoutError(f"Reset service call timed out: {self.p.reset_service_name}")
 
-    def _publish_cmd(self, v: float, wz: float, vz: float) -> None:
+    def _publish_cmd(
+        self, v: float, wz: float, vz: float, wx: float = 0.0, wy: float = 0.0
+    ) -> None:
+        v = float(np.clip(v, -float(self.p.v_max), float(self.p.v_max)))
+        wz = float(np.clip(wz, -float(self.p.wz_max), float(self.p.wz_max)))
+        vz = float(np.clip(vz, -float(self.p.vz_max), float(self.p.vz_max)))
+
         Twist = self._ros["Twist"]
         msg = Twist()
-        msg.linear.x = float(v)
+        msg.linear.x = v
         msg.linear.y = 0.0
-        msg.linear.z = float(vz)
-        msg.angular.x = 0.0
-        msg.angular.y = 0.0
-        msg.angular.z = float(wz)
+        msg.linear.z = vz
+        msg.angular.x = float(wx)
+        msg.angular.y = float(wy)
+        msg.angular.z = wz
         self._ros["cmd_pub"].publish(msg)
 
     def _resample_lidar(self) -> tuple[np.ndarray, np.ndarray]:
         src_ranges = self._latest_scan_raw
         src_angles = self._latest_scan_angles
-
-        if src_ranges.shape[0] == self.p.lidar_num_beams:
-            return src_ranges.astype(np.float32), src_angles.astype(np.float32)
 
         target_angles = np.linspace(
             -np.pi, np.pi, self.p.lidar_num_beams, endpoint=False, dtype=np.float32
@@ -403,10 +427,9 @@ class GazeboForestNavEnv(gym.Env):
 
     def _get_info(self, **kwargs) -> dict[str, Any]:
         lidar, _ = self._resample_lidar()
-        boundary_range = self._distance_to_world_boundary()
         info = {
             "dist_to_goal": float(self._dist_to_goal()),
-            "min_range": float(min(float(np.min(lidar)), boundary_range)),
+            "min_range": float(np.min(lidar)),
             "tree_count": 0,
             "worldgen_seed": None,
         }
@@ -477,7 +500,7 @@ class GazeboForestNavEnv(gym.Env):
         acceleration-based, we integrate acceleration against the current measured
         (or last commanded) velocity state inside the environment, then publish the
         resulting velocity command. Vertical action is intentionally ignored in
-        Gazebo, and altitude is held at z=0.3m using a local feedback command.
+        Gazebo, and altitude is held at ``default_z_target`` using a local feedback command.
 
         Returns ``(cmd_v, cmd_wz, cmd_vz, accel_clipped)``.
         """
@@ -563,11 +586,22 @@ class GazeboForestNavEnv(gym.Env):
             dt=float(self.p.dt),
             decel_max=float(self.p.decel_vz_max),
         )
+        applied_v = float(np.clip(applied_v, -float(self.p.v_max), float(self.p.v_max)))
+        applied_wz = float(np.clip(applied_wz, -float(self.p.wz_max), float(self.p.wz_max)))
+        applied_vz = float(np.clip(applied_vz, -float(self.p.vz_max), float(self.p.vz_max)))
         accel_clipped = int(
             bool(accel_clipped) or slew_clipped_v or slew_clipped_wz or slew_clipped_vz
         )
 
-        self._publish_cmd(applied_v, applied_wz, applied_vz)
+        lock_wx = 0.0
+        lock_wy = 0.0
+        if self.p.attitude_lock_enabled:
+            max_rate = float(self.p.attitude_lock_max_rate)
+            gain = float(self.p.attitude_lock_kp)
+            lock_wx = float(np.clip(-gain * float(self.roll), -max_rate, max_rate))
+            lock_wy = float(np.clip(-gain * float(self.pitch), -max_rate, max_rate))
+
+        self._publish_cmd(applied_v, applied_wz, applied_vz, wx=lock_wx, wy=lock_wy)
         # optimistic model-based state; will be overridden by odom feedback below
         self.v = np.float32(applied_v)
         self.wz = np.float32(applied_wz)
@@ -589,8 +623,7 @@ class GazeboForestNavEnv(gym.Env):
         self._prev_dist = dist
 
         tree_min_range = float(np.min(lidar_ranges))
-        boundary_range = self._distance_to_world_boundary()
-        min_range = float(min(tree_min_range, boundary_range))
+        min_range = tree_min_range
         drone_radius = _effective_drone_radius(self.p)
         clearance = min_range - drone_radius
         collision = int(clearance < 0.0)
